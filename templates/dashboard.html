@@ -1,0 +1,215 @@
+
+{# templates/dashboard.html #}
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Header + KPI -->
+<div class="row g-3 align-items-end mb-2">
+  <div class="col-auto"><h4 class="mb-0">Dashboard</h4></div>
+  <div class="col-auto d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-success kpi-filter" data-status="READY_ACCEPT">พร้อมรับ: {{ kpis.ready }}</button>
+    <button type="button" class="btn btn-sm btn-secondary kpi-filter" data-status="ACCEPTED">รับแล้ว: {{ kpis.accepted }}</button>
+    <button type="button" class="btn btn-sm btn-warning kpi-filter" data-status="LOW_STOCK">สินค้าน้อย: {{ kpis.low }}</button>
+    <button type="button" class="btn btn-sm btn-danger kpi-filter" data-status="SHORTAGE">ไม่มีสินค้า: {{ kpis.nostock }}</button>
+    <button type="button" class="btn btn-sm btn-outline-danger kpi-filter" data-status="NOT_ENOUGH">สินค้าไม่พอส่ง: {{ kpis.notenough }}</button>
+    <button type="button" class="btn btn-sm btn-dark kpi-filter" data-status="PACKED">แพ็คแล้ว: {{ kpis.packed }}</button>
+
+    <span class="badge text-bg-light text-dark">รวมรายการสินค้า: {{ kpis.total_items }}</span>
+    <span class="badge text-bg-light text-dark">รวมจำนวนสินค้า: {{ kpis.total_qty }}</span>
+    <span class="badge text-bg-primary">รวม Order: {{ kpis.orders_unique }}</span>
+
+    <button type="button" class="btn btn-sm btn-success text-white fw-bold kpi-filter kpi-order-ready" data-status="ORDER_READY">
+      Orderพร้อมรับ: {{ kpis.orders_ready }}
+    </button>
+    <button type="button" class="btn btn-sm btn-warning text-dark fw-bold kpi-filter kpi-order-low" data-status="ORDER_LOW_STOCK">
+      Orderสินค้าน้อย: {{ kpis.orders_low }}
+    </button>
+  </div>
+</div>
+
+<!-- ฟิลเตอร์หลัก -->
+<form class="row gy-2 gx-2 align-items-end mb-2" method="get" id="filterForm">
+  <div class="col-md-2">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select class="form-select" name="platform">
+      <option value="">ทั้งหมด</option>
+      {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+        <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">ชื่อร้าน</label>
+    <select class="form-select" name="shop_id">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops %}
+        <option value="{{ s.id }}" {% if shop_sel and shop_sel|int==s.id %}selected{% endif %}>
+          {{ s.platform }} • {{ s.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">วันที่นำเข้า</label>
+    <input type="date" class="form-control" name="import_date" value="{{ import_date_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">จากวันที่</label>
+    <input type="date" class="form-control" name="date_from" value="{{ date_from_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">ถึงวันที่</label>
+    <input type="date" class="form-control" name="date_to" value="{{ date_to_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">สถานะ</label>
+    <select class="form-select" name="status">
+      <option value="">ทั้งหมด</option>
+      <option value="READY_ACCEPT" {% if status_sel=='READY_ACCEPT' %}selected{% endif %}>พร้อมรับ</option>
+      <option value="ACCEPTED" {% if status_sel=='ACCEPTED' %}selected{% endif %}>รับแล้ว</option>
+      <option value="LOW_STOCK" {% if status_sel=='LOW_STOCK' %}selected{% endif %}>สินค้าน้อย</option>
+      <option value="SHORTAGE" {% if status_sel=='SHORTAGE' %}selected{% endif %}>ไม่มีสินค้า</option>
+      <option value="NOT_ENOUGH" {% if status_sel=='NOT_ENOUGH' %}selected{% endif %}>สินค้าไม่พอส่ง</option>
+      <option value="PACKED" {% if status_sel=='PACKED' %}selected{% endif %}>แพ็คแล้ว</option>
+      <option value="ORDER_READY" {% if status_sel=='ORDER_READY' %}selected{% endif %}>Orderพร้อมรับ</option>
+      <option value="ORDER_LOW_STOCK" {% if status_sel=='ORDER_LOW_STOCK' %}selected{% endif %}>Orderสินค้าน้อย</option>
+    </select>
+  </div>
+  <div class="col-12 d-flex gap-2 flex-wrap">
+    <button id="btn-filter" class="btn btn-primary" type="submit">กรอง</button>
+    <a id="btn-reset" class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">ล้างฟิลเตอร์</a>
+    <a id="btn-export" class="btn btn-success"
+       href="{{ url_for('export_excel',
+                        platform=platform_sel,
+                        shop_id=shop_sel,
+                        import_date=import_date_sel,
+                        date_from=date_from_sel,
+                        date_to=date_to_sel,
+                        status=status_sel) }}">
+      Export Excel (มุมมองนี้)
+    </a>
+    <a id="btn-print" class="btn btn-outline-primary" href="{{ url_for('print_warehouse') }}">พิมพ์รายงานคลัง</a>
+    <a id="btn-picking" class="btn btn-outline-success" href="{{ url_for('picking_list') }}">Picking List (รวมยอดหยิบ)</a>
+  </div>
+</form>
+
+<!-- แถบ Bulk -->
+<div id="bulk-bar" class="alert alert-info d-print-none d-flex justify-content-between align-items-center d-none">
+  <div>เลือก <b id="selected-count">0</b> รายการ</div>
+  <div class="btn-group">
+    <a href="#" class="btn btn-success" id="btn-bulk-accept">กดรับที่เลือก</a>
+    <a href="#" class="btn btn-warning" id="btn-bulk-cancel">ยกเลิกที่เลือก</a>
+    <a href="#" class="btn btn-outline-secondary" id="btn-bulk-clear">ล้างการเลือก</a>
+  </div>
+</div>
+
+<!-- CSS เพิ่มความชัด + กรอบเลข Order -->
+<style>
+  .kpi-order-ready{filter:saturate(1.25) contrast(1.1);border-width:2px;}
+  .kpi-order-ready:hover{box-shadow:0 0 0 .25rem rgba(25,135,84,.45);}
+  .kpi-order-low{filter:saturate(1.25) contrast(1.1);border-width:2px;}
+  .kpi-order-low:hover{box-shadow:0 0 0 .25rem rgba(255,193,7,.45);}
+
+  /* ซ่อนไอคอน sort เฉพาะคอลัมน์แรก (checkbox) */
+  #ordersTable thead th:first-child:before,
+  #ordersTable thead th:first-child:after { display: none !important; }
+
+  /* “ตีกรอบ” ให้กลุ่มเลข Order เดียวกัน (หนา) */
+  #ordersTable td.order-group-cell  { border-left: 2px solid #333; border-right: 2px solid #333; }
+  #ordersTable td.order-group-start{ border-top: 2px solid #333 !important; }
+  #ordersTable td.order-group-end  { border-bottom: 2px solid #333 !important; }
+</style>
+
+<!-- ตารางหลัก -->
+<div class="table-responsive">
+  <table id="ordersTable" class="table table-striped table-bordered table-sm align-middle">
+    <thead class="table-light">
+      <tr>
+        <th class="text-center" style="width:36px;"><input type="checkbox" id="check-all" title="เลือกทั้งหมด"></th>
+        <th>แพลตฟอร์ม</th>
+        <th>ร้าน</th>
+        <th>เลข Order</th>
+        <th>SKU</th>
+        <th>Brand</th>
+        <th>ชื่อสินค้า</th>
+        <th>Stock</th>
+        <th>Qty</th>
+        <th>AllQty</th>
+        <th>เวลาที่ลูกค้าสั่ง</th>
+        <th>กำหนดส่ง</th>
+        <th>SLA</th>
+        <th>ประเภทขนส่ง</th>
+        <th>สั่งขาย</th>
+        <th>สถานะ</th>
+        <th>การทำงาน</th>
+        <th>ผู้กดรับ</th>
+      </tr>
+      <tr class="filters d-print-none">
+        <th></th>
+        {% for _ in range(17) %}
+          <th><input class="form-control form-control-sm" placeholder="ค้นหา..."></th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      {% set overdue = (r.sla and r.sla.startswith('เลยกำหนด')) and (r.allocation_status != 'PACKED') %}
+      <tr class="{% if overdue %}table-danger{% endif %}" data-order-id="{{ r.order_id }}">
+        <td class="text-center">
+          <input type="checkbox" class="form-check-input js-row-check" data-id="{{ r.id }}" value="{{ r.id }}">
+        </td>
+        <td>{{ r.platform }}</td>
+        <td>{{ r.shop }}</td>
+        <td class="order-cell">{{ r.order_id }}</td>
+        <td>{{ r.sku }}</td>
+        <td>{{ r.brand }}</td>
+        <td>{{ r.model }}</td>
+        <td>{{ r.stock_qty }}</td>
+        <td>{{ r.qty }}</td>
+        <td>{{ r.allqty }}</td>
+        <td class="text-nowrap" data-ordertime="{{ r.order_time_iso }}" data-platform="{{ r.platform }}">{{ r.order_time|thai_be }}</td>
+        <td>{{ r.due_date|be_date }}</td>
+        <td class="sla-cell" data-status="{{ r.allocation_status }}" data-platform="{{ r.platform }}" data-ordertime="{{ r.order_time_iso }}">
+          {% if r.allocation_status != 'PACKED' %}{{ r.sla }}{% endif %}
+        </td>
+        <td>{{ r.logistic or '-' }}</td>
+        <td>{{ r.sales_status or '-' }}</td>
+        <td>
+          {% if r.allocation_status == "READY_ACCEPT" %}
+            <span class="badge text-bg-success">แนะนำกดรับ</span>
+          {% elif r.allocation_status == "ACCEPTED" %}
+            <span class="badge text-bg-secondary">รับแล้ว</span>
+          {% elif r.allocation_status == "PACKED" %}
+            <span class="badge text-bg-dark">แพ็คแล้ว</span>
+          {% elif r.allocation_status == "LOW_STOCK" %}
+            <span class="badge text-bg-warning">สินค้าน้อย (1–3)</span>
+          {% elif r.allocation_status == "SHORTAGE" %}
+            <span class="badge text-bg-danger">ไม่มีสินค้า</span>
+          {% elif r.allocation_status == "NOT_ENOUGH" %}
+            <span class="badge text-bg-danger">สินค้าไม่พอส่ง</span>
+          {% else %}
+            <span class="badge text-bg-light text-dark">-</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">
+          {% if r.allocation_status in ["READY_ACCEPT","LOW_STOCK"] and not r.accepted %}
+            <form method="post" action="{{ url_for('accept_order', order_line_id=r.id) }}" class="d-inline"
+                  onsubmit="return confirm('ยืนยันกดรับรายการนี้?')">
+              <button class="btn btn-sm {% if r.allocation_status=='LOW_STOCK' %}btn-warning{% else %}btn-primary{% endif %}">กดรับ</button>
+            </form>
+          {% elif r.allocation_status == "ACCEPTED" %}
+            <form method="post" action="{{ url_for('cancel_accept', order_line_id=r.id) }}" class="d-inline">
+              <button class="btn btn-sm btn-outline-danger">ยกเลิก</button>
+            </form>
+          {% else %}
+            <span class="text-muted">-</span>
+          {% endif %}
+        </td>
+        <td>{{ r.accepted_by or '-' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

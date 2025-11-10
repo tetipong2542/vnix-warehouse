@@ -1,0 +1,16 @@
+
+{% extends "base.html" %}
+{% block content %}
+<h4>ล้างข้อมูล</h4>
+<form method="post" class="row g-3">
+  <div class="col-md-3">
+    <select name="scope" class="form-select" required>
+      <option value="today">ลบเฉพาะข้อมูลของวันนี้</option>
+      <option value="all">ลบข้อมูลออเดอร์ทั้งหมด</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-danger">ล้างข้อมูล</button>
+  </div>
+</form>
+{% endblock %}

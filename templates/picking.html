@@ -1,0 +1,190 @@
+
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  /* ซ่อน footer เฉพาะหน้านี้ + ปรับคุณภาพพิมพ์ */
+  footer { display: none !important; }
+  @media print {
+    footer { display: none !important; }
+    .d-print-none { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    table.table { border-color: #333 !important; }
+    table.table th, table.table td { border-color: #333 !important; padding: 4px 6px !important; font-size: 12px; }
+    .table .need-col{
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      background: #dbe8ff !important;
+    }
+  }
+  /* เน้นคอลัมน์ “ต้องหยิบ” */
+  .table .need-col{
+    background: #e6f0ff;
+    font-weight: 700;
+    border-left: 2px solid #99b8ff;
+    border-right: 2px solid #99b8ff;
+  }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Picking List</h3>
+  <div class="d-print-none d-flex gap-2">
+    {% if not official_print %}
+      <form method="post" action="{{ url_for('picking_list_commit') }}" class="d-inline">
+        <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
+        <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
+        <input type="hidden" name="logistic" value="{{ logistic_sel or '' }}">
+        {% if CURRENT_USER and CURRENT_USER.role == 'admin' %}
+          <label class="me-2"><input type="checkbox" name="override" value="1"> อนุญาตพิมพ์ซ้ำ (แอดมิน)</label>
+        {% endif %}
+        <button class="btn btn-danger">🔒 พิมพ์และล็อกงาน</button>
+      </form>
+    {% endif %}
+    <a class="btn btn-outline-secondary"
+       href="{{ url_for('picking_list', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel) }}">
+      รีเฟรช
+    </a>
+    <a class="btn btn-success"
+       href="{{ url_for('export_picking_excel',
+                        platform=platform_sel,
+                        shop_id=shop_sel,
+                        logistic=logistic_sel) }}">
+      Export Excel
+    </a>
+    {% if not official_print %}
+      <button class="btn btn-outline-primary" onclick="window.print()">พิมพ์ (Preview)</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if official_print and printed_meta %}
+  <div class="alert alert-success d-print-none">
+    <strong>Official print</strong>
+    • ผู้ออก: {{ printed_meta.by }}
+    • เวลา: {{ printed_meta.at|thai_be }}
+    • รวมออเดอร์: {{ printed_meta.orders }}
+    {% if printed_meta.override %}<span class="badge text-bg-warning ms-2">Reprint (Admin)</span>{% endif %}
+  </div>
+{% else %}
+  <div class="alert alert-info d-print-none">
+    นี่คือโหมด <strong>Preview</strong> — จะไม่ล็อกงานจนกว่าจะกด “พิมพ์และล็อกงาน”
+  </div>
+{% endif %}
+
+<form class="row gy-2 gx-2 align-items-end mb-3 d-print-none" method="get" action="{{ url_for('picking_list') }}">
+  <div class="col-md-2">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select class="form-select" name="platform">
+      <option value="">ทั้งหมด</option>
+      {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+        <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">ชื่อร้าน</label>
+    <select class="form-select" name="shop_id">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops %}
+        <option value="{{ s.id }}" {% if shop_sel and shop_sel|int==s.id %}selected{% endif %}>
+          {{ s.platform }} • {{ s.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">ประเภทขนส่ง</label>
+    <select class="form-select" name="logistic">
+      <option value="">ทั้งหมด</option>
+      {% for lg in logistics %}
+        <option value="{{ lg }}" {% if logistic_sel==lg %}selected{% endif %}>{{ lg }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4 d-flex gap-2">
+    <button class="btn btn-primary">กรอง</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('picking_list') }}">ล้างฟิลเตอร์</a>
+  </div>
+</form>
+
+<div class="mb-2">
+  <span class="badge text-bg-primary">Distinct SKUs: {{ totals.total_skus }}</span>
+  <span class="badge text-bg-secondary">ต้องหยิบรวม: {{ totals.total_need_qty }}</span>
+  <span class="badge text-bg-danger">ขาดรวม: {{ totals.total_shortage }}</span>
+</div>
+
+{# เตรียมชื่อร้านจาก shop_sel ถ้าเลือก #}
+{% set shop_sel_name = '-' %}
+{% if shop_sel %}
+  {% for s in shops %}
+    {% if s.id == shop_sel|int %}
+      {% set shop_sel_name = s.platform ~ ' • ' ~ s.name %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-light">
+      <tr>
+        <!-- NEW -->
+        <th>แพลตฟอร์ม</th>
+        <th>ร้าน</th>
+        <!-- เดิม -->
+        <th style="width: 140px;">SKU</th>
+        <th>Brand</th>
+        <th>สินค้า</th>
+        <th class="text-end" style="width: 120px;">ต้องหยิบ</th>
+        <th class="text-end" style="width: 120px;">สต็อก</th>
+        <th class="text-end" style="width: 120px;">ขาด</th>
+        <th class="text-end" style="width: 140px;">คงเหลือหลังหยิบ</th>
+        <!-- NEW -->
+        <th>ประเภทขนส่ง</th>
+        <!-- NEW -->
+        <th class="text-center" style="width: 130px;">พิมพ์แล้ว (ครั้ง)</th>
+        <th class="d-print-none" style="width: 110px;">เช็ค</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+        <tr class="{% if it.shortage>0 %}table-warning{% endif %}">
+          <!-- NEW: ใช้ค่าจากฟิลเตอร์เป็นค่า default ในทุกแถว เพราะตารางนี้เป็นรวมต่อ SKU -->
+          <td>{{ platform_sel or '-' }}</td>
+          <td>{{ shop_sel_name }}</td>
+
+          <!-- เดิม -->
+          <td><strong>{{ it.sku }}</strong></td>
+          <td>{{ it.brand }}</td>
+          <td>{{ it.model }}</td>
+          <td class="text-end need-col">{{ it.need_qty }}</td>
+          <td class="text-end">{{ it.stock_qty }}</td>
+          <td class="text-end">{{ it.shortage }}</td>
+          <td class="text-end">{{ it.remain_after_pick }}</td>
+
+          <!-- NEW: ประเภทขนส่ง (จากฟิลเตอร์) -->
+          <td>{{ logistic_sel or '-' }}</td>
+
+          <!-- NEW: พิมพ์แล้ว (ครั้ง) — ใช้ค่ารวมของชุดงานนี้ -->
+          <td class="text-center">{{ print_count_overall|default(0, true) }}</td>
+
+          <td class="d-print-none"><input type="checkbox"></td>
+        </tr>
+      {% endfor %}
+      {% if not items %}
+        <tr><td colspan="12" class="text-center text-muted">ไม่พบรายการที่ต้องหยิบ</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if official_print %}
+<script>
+  // พิมพ์อัตโนมัติเมื่อเป็น Official print
+  window.addEventListener('load', function(){ window.print(); });
+</script>
+{% endif %}
+
+{% endblock %}
+
+{# ซ่อน footer ข้อความลิขสิทธิ์เฉพาะหน้านี้ #}
+{% block footer %}{% endblock %}

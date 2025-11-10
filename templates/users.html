@@ -1,0 +1,42 @@
+
+{% extends "base.html" %}
+{% block content %}
+<h4>ผู้ใช้งาน</h4>
+<div class="row g-3 align-items-end">
+  <div class="col-md-3">
+    <form method="post" class="row g-2">
+      <input type="hidden" name="action" value="create">
+      <div class="col-12"><label class="form-label">ชื่อผู้ใช้</label><input name="username" class="form-control" required></div>
+      <div class="col-12"><label class="form-label">รหัสผ่าน</label><input name="password" type="password" class="form-control" required></div>
+      <div class="col-12"><label class="form-label">บทบาท</label>
+        <select name="role" class="form-select"><option value="user">User</option><option value="admin">Admin</option></select>
+      </div>
+      <div class="col-12"><button class="btn btn-primary">เพิ่มผู้ใช้</button></div>
+    </form>
+  </div>
+  <div class="col-md-9">
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light"><tr><th>#</th><th>ชื่อผู้ใช้</th><th>บทบาท</th><th>สร้างเมื่อ</th><th>ลบ</th></tr></thead>
+        <tbody>
+        {% for u in users %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ u.username }}</td>
+            <td>{{ u.role }}</td>
+            <td>{{ u.created_at|thai_be }}</td>
+            <td>
+              <form method="post" onsubmit="return confirm('ยืนยันลบผู้ใช้ {{u.username}} ?')">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="uid" value="{{u.id}}">
+                <button class="btn btn-sm btn-outline-danger">ลบ</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,178 @@
+
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  footer { display: none !important; }
+  @media print {
+    footer { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* ทำให้เส้นตารางชัดตอนพิมพ์ */
+    table.table { border-color: #333 !important; }
+    table.table th, table.table td { border-color: #333 !important; }
+  }
+  /* แถวต่อเนื่องของออเดอร์เดียวกัน: ลดเส้นบนให้ดูกลุ่มเดียวกัน */
+  tr.order-cont td { border-top-color: #bbb !important; }
+</style>
+
+<div class="container">
+  <!-- หัวข้อ + ปุ่มพิมพ์/ล็อก -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">ใบงานคลัง (Warehouse Job Sheet)</h3>
+    <div class="d-print-none">
+      {% if not official_print %}
+        <form method="post" action="{{ url_for('print_warehouse_commit') }}" class="d-inline">
+          <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
+          <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
+          <input type="hidden" name="logistic" value="{{ logistic_sel or '' }}">
+          {% if CURRENT_USER and CURRENT_USER.role == 'admin' %}
+            <label class="me-2"><input type="checkbox" name="override" value="1"> อนุญาตพิมพ์ซ้ำ (แอดมิน)</label>
+          {% endif %}
+          <button class="btn btn-danger">🔒 พิมพ์และล็อกงาน</button>
+        </form>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel) }}">รีเฟรช</a>
+    </div>
+  </div>
+
+  <!-- แถบแจ้งโหมด -->
+  {% if official_print and printed_meta %}
+    <div class="alert alert-success d-print-none">
+      <strong>Official print</strong>
+      • ผู้ออก: {{ printed_meta.by }}
+      • เวลา: {{ printed_meta.at|thai_be }}
+      • จำนวนออเดอร์: {{ printed_meta.orders }}
+      {% if printed_meta.override %}<span class="badge text-bg-warning ms-2">Reprint (Admin)</span>{% endif %}
+    </div>
+  {% else %}
+    <div class="alert alert-info d-print-none">
+      นี่คือโหมด <strong>Preview</strong> — จะไม่ล็อกงานจนกว่าจะกด “พิมพ์และล็อกงาน”
+    </div>
+  {% endif %}
+
+  <!-- ฟอร์มฟิลเตอร์ (GET) -->
+  <form class="row gy-2 gx-2 align-items-end mb-2 d-print-none" method="get" action="{{ url_for('print_warehouse') }}">
+    <div class="col-md-2">
+      <label class="form-label">แพลตฟอร์ม</label>
+      <select name="platform" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+          <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ร้าน</label>
+      <select name="shop_id" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for s in shops %}
+          <option value="{{s.id}}" {% if shop_sel and (shop_sel|int==s.id) %}selected{% endif %}>{{ s.platform }} • {{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ประเภทขนส่ง</label>
+      <select name="logistic" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for l in logistics %}
+          <option value="{{l}}" {% if logistic_sel==l %}selected{% endif %}>{{l}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary w-100">ดูรายงาน</button>
+    </div>
+    <div class="col-md-2">
+      <a class="btn btn-success w-100" href="{{ url_for('export_excel') }}">Export Excel ทั้งหมด</a>
+    </div>
+  </form>
+
+  <!-- KPI สั้น ๆ -->
+  <div class="mb-2">
+    <span class="badge text-bg-primary">Orders: {{ count_orders }}</span>
+    <span class="badge text-bg-secondary">Total Qty: {{ total_qty }}</span>
+  </div>
+
+  <!-- ตารางแสดงผล -->
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>แพลตฟอร์ม</th>
+          <th>ร้าน</th>
+          <th style="width: 140px;">เลข Order</th>
+          <th style="width: 140px;">SKU</th>
+          <th>Brand</th>
+          <th>ชื่อสินค้า</th>
+          <th class="text-end" style="width: 80px;">Qty</th>
+          <th>ประเภทขนส่ง</th>
+          <th>ผู้กดรับ</th>
+          <!-- >>> NEW -->
+          <th class="text-center" style="width: 120px;">พิมพ์แล้ว (ครั้ง)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr class="{% if not r.show_order_id %}order-cont{% endif %}">
+            <td>{{ r.platform }}</td>
+            <td>{{ r.shop }}</td>
+
+            {# เลข Order ใช้ rowspan เฉพาะแถวแรกของออเดอร์ #}
+            {% if r.show_order_id %}
+              <td rowspan="{{ r.order_rowspan }}"><strong>{{ r.order_id_display }}</strong></td>
+            {% endif %}
+
+            <td>{{ r.sku }}</td>
+            <td>{{ r.brand }}</td>
+            <td>{{ r.model }}</td>
+            <td class="text-end">{{ r.qty }}</td>
+            <td>{{ r.logistic or '-' }}</td>
+            <td>{{ r.accepted_by or '-' }}</td>
+
+            {# >>> NEW: คอลัมน์ "พิมพ์แล้ว (ครั้ง)" แสดงครั้งเดียวต่อออเดอร์ ด้วย rowspan เท่ากับจำนวนแถวของออเดอร์นั้น #}
+            {% if r.show_order_id %}
+              <td class="text-center" rowspan="{{ r.order_rowspan }}">
+                {{ (print_counts_job.get(r.order_id_display|string, 0) if print_counts_job else 0) }}
+              </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- กล่องเซ็นรับ -->
+  <div class="row mt-4 g-3">
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-5">ลายเซ็นคลังรับงาน</div>
+        <div class="text-muted">ชื่อ-นามสกุล / วันเวลา</div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-2">ลายเซ็นขนส่งรับงาน</div>
+        <div class="text-muted">บริษัทขนส่ง / วันเวลา / เบอร์โทรขนส่ง</div>
+        {% if request.args.get("logi_phone") %}
+          <div class="mt-2">โทร: {{ request.args.get("logi_phone") }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ปุ่มพิมพ์ (เฉพาะโหมด Preview) -->
+  <div class="mt-3 d-print-none">
+    {% if not official_print %}
+      <button class="btn btn-outline-secondary" onclick="window.print()">พิมพ์หน้าปัจจุบัน (Preview)</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if official_print %}
+<script>
+  // พิมพ์อัตโนมัติเมื่อเป็น Official print
+  window.addEventListener('load', function(){ window.print(); });
+</script>
+{% endif %}
+
+{% endblock %}
