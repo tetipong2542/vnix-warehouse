@@ -1,0 +1,560 @@
+
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  footer { display: none !important; }
+  @media print {
+    footer { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* ทำให้เส้นตารางชัดตอนพิมพ์ */
+    table.table { border-color: #333 !important; }
+    table.table th, table.table td { border-color: #333 !important; }
+    .d-print-none { display: none !important; }
+  }
+  
+  /* Sortable column headers */
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px !important;
+  }
+  th.sortable:hover {
+    background-color: #e9ecef;
+  }
+  th.sortable::after {
+    content: '⇅';
+    position: absolute;
+    right: 5px;
+    opacity: 0.3;
+  }
+  th.sortable.asc::after {
+    content: '▲';
+    opacity: 1;
+  }
+  th.sortable.desc::after {
+    content: '▼';
+    opacity: 1;
+  }
+</style>
+
+<div class="container">
+  <!-- หัวข้อ + ปุ่มพิมพ์/ล็อก -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">
+      {{ report_title or "ใบงานคลัง (Warehouse Job Sheet)" }}
+      {% if is_history_view %}<span class="badge bg-info ms-2">งานที่พิมพ์แล้ว</span>{% endif %}
+    </h3>
+    <div class="d-print-none d-flex gap-2">
+      {% if not official_print %}
+        <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelected()">🔒 พิมพ์และล็อกงานที่เลือก</button>
+        <button id="printAllBtn" class="btn btn-warning" onclick="printAllOrders()">🔒 พิมพ์และล็อกงานทั้งหมด</button>
+        <button id="updateDispatchBtn" class="btn btn-primary" onclick="showDispatchModal()">📝 จ่ายงาน(รอบที่)</button>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel) if not is_history_view else url_for('warehouse_printed_history', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel, print_date=print_date_sel) }}">รีเฟรช</a>
+    </div>
+  </div>
+
+  <!-- แถบแจ้งโหมด -->
+  {% if is_history_view %}
+    <div class="alert alert-primary d-print-none">
+      <strong>📋 โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
+    </div>
+  {% elif official_print and printed_meta %}
+    <div class="alert alert-success d-print-none">
+      <strong>Official print</strong>
+      • ผู้ออก: {{ printed_meta.by }}
+      • เวลา: {{ printed_meta.at|thai_be }}
+      • จำนวนออเดอร์: {{ printed_meta.orders }}
+      {% if printed_meta.override %}<span class="badge text-bg-warning ms-2">Reprint (Admin)</span>{% endif %}
+    </div>
+  {% else %}
+    <div class="alert alert-info d-print-none">
+      นี่คือโหมด <strong>Preview</strong> — จะไม่ล็อกงานจนกว่าจะกด "พิมพ์และล็อกงาน"
+    </div>
+  {% endif %}
+
+  <!-- ฟอร์มฟิลเตอร์ (GET) -->
+  <form class="row gy-2 gx-2 align-items-end mb-2 d-print-none" method="get" action="{{ url_for('print_warehouse') if not is_history_view else url_for('warehouse_printed_history') }}">
+    {% if is_history_view and available_dates %}
+    <div class="col-md-2">
+      <label class="form-label">วันที่พิมพ์</label>
+      <select name="print_date" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for d in available_dates %}
+          <option value="{{d}}" {% if print_date_sel==d|string %}selected{% endif %}>{{ d }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="col-md-2">
+      <label class="form-label">แพลตฟอร์ม</label>
+      <select name="platform" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+          <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ร้าน</label>
+      <select name="shop_id" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for s in shops %}
+          <option value="{{s.id}}" {% if shop_sel and (shop_sel|int==s.id) %}selected{% endif %}>{{ s.platform }} • {{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ประเภทขนส่ง</label>
+      <select name="logistic" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for l in logistics %}
+          <option value="{{l}}" {% if logistic_sel==l %}selected{% endif %}>{{l}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <button class="btn btn-primary w-100">ดูรายงาน</button>
+    </div>
+    <div class="col-md-2">
+      <a class="btn btn-success w-100" href="{{ url_for('export_excel') }}">Export Excel ทั้งหมด</a>
+    </div>
+  </form>
+
+  <!-- KPI สั้น ๆ -->
+  <div class="mb-2 d-flex justify-content-between align-items-center">
+    <div>
+      <span class="badge text-bg-primary">Orders: {{ count_orders }}</span>
+      <span class="badge text-bg-secondary" id="selectedCount">Selected: 0</span>
+    </div>
+    <div class="d-print-none d-flex gap-2">
+      <input type="number" id="dispatchRoundFilter" class="form-control form-control-sm d-inline-block" style="width: 140px;" placeholder="กรอง จ่ายงาน(รอบที่)">
+      <button class="btn btn-sm btn-outline-info" onclick="filterByDispatchRound()">กรอง</button>
+      <input type="number" id="printCountFilter" class="form-control form-control-sm d-inline-block" style="width: 120px;" placeholder="กรอง พิมพ์แล้ว">
+      <button class="btn btn-sm btn-outline-primary" onclick="filterByPrintCount()">กรอง</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()">ล้างทั้งหมด</button>
+    </div>
+  </div>
+
+  <!-- ตารางแสดงผล -->
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" id="warehouseTable">
+      <thead class="table-light">
+        <tr>
+          <th class="d-print-none" style="width: 40px;">
+            <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+          </th>
+          <th class="sortable" data-column="platform">แพลตฟอร์ม</th>
+          <th class="sortable" data-column="shop">ร้าน</th>
+          <th class="sortable" data-column="order_id" style="width: 140px;">เลข Order</th>
+          <th class="sortable" data-column="logistic">ประเภทขนส่ง</th>
+          <th class="sortable" data-column="accepted_by">ผู้กดรับ</th>
+          <th class="sortable text-center" data-column="dispatch_round" style="width: 120px;">จ่ายงาน(รอบที่)</th>
+          <th class="sortable text-center" data-column="printed_count" style="width: 120px;">พิมพ์แล้ว (ครั้ง)</th>
+          <th class="sortable text-center" data-column="printed_at" style="width: 180px;">วัน/เดือน/ปี/เวลา ที่พิมพ์</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-order-id="{{ r.order_id }}" data-platform="{{ r.platform }}" data-shop="{{ r.shop }}" data-logistic="{{ r.logistic or '-' }}" data-accepted-by="{{ r.accepted_by or '-' }}" data-dispatch-round="{% if r.dispatch_round is not none %}{{ r.dispatch_round }}{% endif %}" data-printed-count="{% if r.printed_warehouse is not none %}{{ r.printed_warehouse }}{% else %}0{% endif %}" data-printed-at="{% if r.printed_warehouse_at %}{{ r.printed_warehouse_at.isoformat() }}{% endif %}">
+            
+            {# Checkbox #}
+            <td class="d-print-none">
+              <input type="checkbox" class="order-checkbox" value="{{ r.order_id }}" onchange="updateSelectedCount()">
+            </td>
+            
+            <td>{{ r.platform }}</td>
+            <td>{{ r.shop }}</td>
+            <td><strong>{{ r.order_id }}</strong></td>
+            <td>{{ r.logistic or '-' }}</td>
+            <td>{{ r.accepted_by or '-' }}</td>
+            <td class="text-center">
+              {% if r.dispatch_round is not none %}
+                {{ r.dispatch_round }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if r.get('printed_warehouse') and r.get('printed_warehouse') > 0 %}
+                <span class="badge bg-success">{{ r.get('printed_warehouse') }}</span>
+              {% else %}
+                <span class="text-muted">0</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if r.get('printed_warehouse_at') %}
+                {{ r.get('printed_warehouse_at')|thai_be }}
+                {% if r.get('printed_warehouse_by') %}
+                  <br><small class="text-muted">(โดย: {{ r.get('printed_warehouse_by') }})</small>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- กล่องเซ็นรับ -->
+  <div class="row mt-4 g-3">
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-5">ลายเซ็นคลังรับงาน</div>
+        <div class="text-muted">ชื่อ-นามสกุล / วันเวลา</div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-2">ลายเซ็นขนส่งรับงาน</div>
+        <div class="text-muted">บริษัทขนส่ง / วันเวลา / เบอร์โทรขนส่ง</div>
+        {% if request.args.get("logi_phone") %}
+          <div class="mt-2">โทร: {{ request.args.get("logi_phone") }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ปุ่มพิมพ์ (เฉพาะโหมด Preview) -->
+  <div class="mt-3 d-print-none">
+    {% if not official_print %}
+      <button class="btn btn-outline-secondary" onclick="window.print()">พิมพ์หน้าปัจจุบัน (Preview)</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if official_print %}
+<script>
+  // พิมพ์อัตโนมัติเมื่อเป็น Official print
+  window.addEventListener('load', function(){ window.print(); });
+</script>
+{% endif %}
+
+<script>
+// Store original rows for filtering
+let allRows = [];
+let sortState = { column: null, direction: 'none' }; // 'none', 'asc', 'desc'
+
+document.addEventListener('DOMContentLoaded', function() {
+  const tbody = document.querySelector('#warehouseTable tbody');
+  allRows = Array.from(tbody.querySelectorAll('tr'));
+});
+
+// Toggle select all checkboxes
+function toggleSelectAll(checkbox) {
+  const checkboxes = document.querySelectorAll('.order-checkbox:not(:disabled)');
+  const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
+    const row = cb.closest('tr');
+    return row.style.display !== 'none';
+  });
+  
+  visibleCheckboxes.forEach(cb => {
+    cb.checked = checkbox.checked;
+  });
+  updateSelectedCount();
+}
+
+// Update selected count badge
+function updateSelectedCount() {
+  const checked = document.querySelectorAll('.order-checkbox:checked').length;
+  document.getElementById('selectedCount').textContent = `Selected: ${checked}`;
+  
+  // Update select all checkbox state
+  const selectAll = document.getElementById('selectAll');
+  const visibleCheckboxes = Array.from(document.querySelectorAll('.order-checkbox:not(:disabled)')).filter(cb => {
+    const row = cb.closest('tr');
+    return row.style.display !== 'none';
+  });
+  
+  if (visibleCheckboxes.length === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  } else {
+    const visibleChecked = visibleCheckboxes.filter(cb => cb.checked).length;
+    selectAll.checked = visibleChecked === visibleCheckboxes.length;
+    selectAll.indeterminate = visibleChecked > 0 && visibleChecked < visibleCheckboxes.length;
+  }
+}
+
+// Print selected orders
+function printSelected() {
+  const selected = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => cb.value);
+  
+  if (selected.length === 0) {
+    alert('กรุณาเลือกออเดอร์ที่ต้องการพิมพ์อย่างน้อย 1 รายการ');
+    return;
+  }
+  
+  if (!confirm(`ต้องการพิมพ์และล็อกงาน ${selected.length} ออเดอร์ใช่หรือไม่?`)) {
+    return;
+  }
+  
+  submitPrintForm(selected);
+}
+
+// Print all orders
+function printAllOrders() {
+  const allOrderIds = Array.from(new Set(
+    Array.from(document.querySelectorAll('.order-checkbox')).map(cb => cb.value)
+  ));
+  
+  if (allOrderIds.length === 0) {
+    alert('ไม่พบออเดอร์ที่จะพิมพ์');
+    return;
+  }
+  
+  if (!confirm(`ต้องการพิมพ์และล็อกงานทั้งหมด ${allOrderIds.length} ออเดอร์ใช่หรือไม่?`)) {
+    return;
+  }
+  
+  submitPrintForm(allOrderIds);
+}
+
+// Submit print form
+function submitPrintForm(orderIds) {
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = '{{ print_action or url_for("print_warehouse_commit") }}';
+  
+  // Add hidden fields
+  const fields = {
+    platform: '{{ platform_sel or "" }}',
+    shop_id: '{{ shop_sel or "" }}',
+    logistic: '{{ logistic_sel or "" }}',
+    order_ids: orderIds.join(',')
+  };
+  
+  {% if CURRENT_USER and CURRENT_USER.role == 'admin' %}
+  // Check if admin override is needed
+  const override = confirm('ต้องการอนุญาตพิมพ์ซ้ำหรือไม่? (สำหรับแอดมิน)');
+  if (override) {
+    fields.override = '1';
+  }
+  {% endif %}
+  
+  for (const [key, value] of Object.entries(fields)) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = key;
+    input.value = value;
+    form.appendChild(input);
+  }
+  
+  document.body.appendChild(form);
+  form.submit();
+}
+
+// Filter by print count
+function filterByPrintCount() {
+  const filterValue = document.getElementById('printCountFilter').value;
+  
+  if (filterValue === '') {
+    clearPrintCountFilter();
+    return;
+  }
+  
+  const targetCount = parseInt(filterValue);
+  
+  allRows.forEach(row => {
+    const printedCount = parseInt(row.dataset.printedCount || '0');
+    
+    if (printedCount === targetCount) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  updateSelectedCount();
+}
+
+// Clear print count filter
+function clearPrintCountFilter() {
+  document.getElementById('printCountFilter').value = '';
+  allRows.forEach(row => {
+    row.style.display = '';
+  });
+  updateSelectedCount();
+}
+
+// Filter by dispatch round
+function filterByDispatchRound() {
+  const filterValue = document.getElementById('dispatchRoundFilter').value;
+  
+  if (filterValue === '') {
+    clearDispatchRoundFilter();
+    return;
+  }
+  
+  const targetRound = parseInt(filterValue);
+  
+  allRows.forEach(row => {
+    const dispatchRound = row.dataset.dispatchRound;
+    const roundValue = dispatchRound ? parseInt(dispatchRound) : null;
+    
+    if (roundValue === targetRound) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  updateSelectedCount();
+}
+
+// Clear dispatch round filter
+function clearDispatchRoundFilter() {
+  document.getElementById('dispatchRoundFilter').value = '';
+  allRows.forEach(row => {
+    row.style.display = '';
+  });
+  updateSelectedCount();
+}
+
+// Clear all filters
+function clearAllFilters() {
+  clearPrintCountFilter();
+  clearDispatchRoundFilter();
+}
+
+// Show dispatch round modal
+function showDispatchModal() {
+  const selected = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => cb.value);
+  
+  if (selected.length === 0) {
+    alert('กรุณาเลือกออเดอร์ที่ต้องการจ่ายงานอย่างน้อย 1 รายการ');
+    return;
+  }
+  
+  const round = prompt(`จ่ายงานรอบที่เท่าไหร่? (${selected.length} ออเดอร์ที่เลือก)`);
+  
+  if (round === null) {
+    return; // User cancelled
+  }
+  
+  if (round === '' || isNaN(parseInt(round))) {
+    alert('กรุณาระบุเลขรอบการจ่ายงานที่ถูกต้อง');
+    return;
+  }
+  
+  // Send update request
+  updateDispatchRound(selected, parseInt(round));
+}
+
+// Update dispatch round via API
+async function updateDispatchRound(orderIds, dispatchRound) {
+  try {
+    const response = await fetch('{{ url_for("update_dispatch_round") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        order_ids: orderIds,
+        dispatch_round: dispatchRound
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      alert(result.message);
+      // Reload page to show updated data
+      window.location.reload();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + result.error);
+    }
+  } catch (error) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+  }
+}
+
+// Sort table by column
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', function() {
+    const column = this.dataset.column;
+    
+    // Determine sort direction
+    if (sortState.column === column) {
+      if (sortState.direction === 'none') {
+        sortState.direction = 'asc';
+      } else if (sortState.direction === 'asc') {
+        sortState.direction = 'desc';
+      } else {
+        sortState.direction = 'none';
+      }
+    } else {
+      sortState.column = column;
+      sortState.direction = 'asc';
+    }
+    
+    // Update UI
+    document.querySelectorAll('th.sortable').forEach(h => {
+      h.classList.remove('asc', 'desc');
+    });
+    
+    if (sortState.direction !== 'none') {
+      this.classList.add(sortState.direction);
+    }
+    
+    // Sort rows
+    sortTable(column, sortState.direction);
+  });
+});
+
+function sortTable(column, direction) {
+  const tbody = document.querySelector('#warehouseTable tbody');
+  
+  if (direction === 'none') {
+    // Restore original order
+    allRows.forEach(row => tbody.appendChild(row));
+    return;
+  }
+  
+  // Since each row is now 1 order, just sort rows directly
+  const sortedRows = [...allRows].sort((rowA, rowB) => {
+    let valueA = rowA.dataset[column === 'order_id' ? 'orderId' : column] || '';
+    let valueB = rowB.dataset[column === 'order_id' ? 'orderId' : column] || '';
+    
+    // Handle numeric sorting for printed_count and dispatch_round
+    if (column === 'printed_count' || column === 'dispatch_round') {
+      valueA = parseInt(valueA) || 0;
+      valueB = parseInt(valueB) || 0;
+      
+      if (direction === 'asc') {
+        return valueA - valueB;
+      } else {
+        return valueB - valueA;
+      }
+    }
+    
+    // Handle datetime sorting for printed_at
+    if (column === 'printed_at') {
+      const dateA = valueA ? new Date(valueA).getTime() : 0;
+      const dateB = valueB ? new Date(valueB).getTime() : 0;
+      
+      if (direction === 'asc') {
+        return dateA - dateB;
+      } else {
+        return dateB - dateA;
+      }
+    }
+    
+    // String comparison with Thai locale support
+    const comparison = valueA.localeCompare(valueB, 'th');
+    return direction === 'asc' ? comparison : -comparison;
+  });
+  
+  // Rebuild table with sorted rows
+  sortedRows.forEach(row => tbody.appendChild(row));
+}
+
+// Initialize
+updateSelectedCount();
+</script>
+
+{% endblock %}

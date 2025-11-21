@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Import Orders (จ่ายงานแล้ว)</h3>
+<div class="mb-2">
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('import_issued_template') }}">ดาวน์โหลดเทมเพลต</a>
+</div>
+<form method="post" enctype="multipart/form-data" class="card p-3">
+  <div class="mb-2">
+    <label class="form-label">ไฟล์ (.xlsx / .csv)</label>
+    <input type="file" class="form-control" name="file" accept=".xlsx,.xls,.csv" required>
+  </div>
+  <button class="btn btn-primary">อัปโหลด</button>
+</form>
+
+{% if result %}
+<hr>
+<h5>ผลการนำเข้า</h5>
+<ul>
+  <li>รายการในไฟล์: {{ result.total_in_file }}</li>
+  <li>พบในระบบ: {{ result.matched_in_system }}</li>
+  <li>ทำเครื่องหมายจ่ายงานแล้ว: {{ result.inserted_issued }}</li>
+  {% if result.not_found and result.not_found|length > 0 %}
+    <li class="text-danger">ไม่พบในระบบ (ตัวอย่าง): {{ result.not_found|join(', ') }}</li>
+  {% endif %}
+</ul>
+{% endif %}
+{% endblock %}

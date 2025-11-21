@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">จัดการรายชื่อร้าน</h4>
+<div class="table-responsive">
+  <table class="table table-bordered table-striped align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:60px;">#</th>
+        <th>แพลตฟอร์ม</th>
+        <th>ชื่อร้าน</th>
+        <th class="text-center" style="width:120px;"># ออเดอร์</th>
+        <th style="width:140px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in shops %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ s.platform }}</td>
+        <td>{{ s.name }}</td>
+        <td class="text-center">{{ counts.get(s.id, 0) }}</td>
+        <td>
+          <form method="post" action="{{ url_for('delete_shop', shop_id=s.id) }}"
+                onsubmit="return confirm('ยืนยันลบร้าน {{ s.name }} ? ข้อมูลออเดอร์จะไม่ถูกลบ');">
+            <!-- {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %} -->
+            <button class="btn btn-sm btn-outline-danger"
+                    {% if counts.get(s.id,0)>0 %}disabled title="มีออเดอร์ผูกอยู่ ไม่สามารถลบ"{% endif %}>
+              ลบชื่อร้าน
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

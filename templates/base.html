@@ -1,0 +1,153 @@
+
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ APP_NAME }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">{{ APP_NAME }}</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a href="{{ url_for('dashboard') }}" class="nav-link">Dashboard</a></li>
+
+        {# ===== เมนูนำเข้า: กันพังถ้าไม่มีตัวแปร has_endpoint ใน Jinja ===== #}
+        {% set _ep = has_endpoint if has_endpoint is defined else None %}
+        {% set _has_orders   = _ep and _ep('import_orders_view') %}
+        {% set _has_products = _ep and _ep('import_products_view') %}
+        {% set _has_stock    = _ep and _ep('import_stock_view') %}
+        {% set _has_sales    = _ep and _ep('import_sales_view') %}
+        {# >>> เพิ่มตรวจ endpoint ใหม่ #}
+        {% set _has_cancel_import = _ep and _ep('import_cancel_orders') %}
+        {% set _has_issued_import = _ep and _ep('import_issued_orders') %}
+        {% set _any_import   = _has_orders or _has_products or _has_stock or _has_sales or _has_cancel_import or _has_issued_import %}
+
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">นำเข้า</a>
+          <ul class="dropdown-menu">
+            {% if _has_orders %}
+              <li><a class="dropdown-item" href="{{ url_for('import_orders_view') }}">Import Orders</a></li>
+            {% endif %}
+            {# >>> เมนูใหม่: Import Orders ยกเลิก #}
+            {% if _has_cancel_import %}
+              <li><a class="dropdown-item" href="{{ url_for('import_cancel_orders') }}">Import Orders ยกเลิก</a></li>
+            {% endif %}
+            {# >>> NEW: Import Orders (จ่ายงานแล้ว) #}
+            {% if _has_issued_import %}
+              <li><a class="dropdown-item" href="{{ url_for('import_issued_orders') }}">Import Orders (จ่ายงานแล้ว)</a></li>
+            {% endif %}
+            {# <<< NEW #}
+            {% if _has_products %}
+              <li><a class="dropdown-item" href="{{ url_for('import_products_view') }}">Import สินค้า</a></li>
+            {% endif %}
+            {% if _has_stock %}
+              <li><a class="dropdown-item" href="{{ url_for('import_stock_view') }}">Import สต็อก</a></li>
+            {% endif %}
+            {% if _has_sales %}
+              <li><a class="dropdown-item" href="{{ url_for('import_sales_view') }}">Import สั่งขาย</a></li>
+            {% endif %}
+
+            {# ===== เพิ่มเมนู "จัดการรายชื่อร้าน" เฉพาะ admin/staff และมี endpoint ===== #}
+            {% if _ep and _ep('admin_shops') and CURRENT_USER and CURRENT_USER.role in ['admin','staff'] %}
+              {% if _any_import %}<li><hr class="dropdown-divider"></li>{% endif %}
+              <li><a class="dropdown-item" href="{{ url_for('admin_shops') }}">จัดการรายชื่อร้าน</a></li>
+            {% endif %}
+
+            {# หากไม่มี endpoint นำเข้าเลย (หรือไม่มี has_endpoint) ให้แสดงข้อความแจ้ง #}
+            {% if not _any_import %}
+              <li><span class="dropdown-item-text text-muted">ไม่มีเมนูนําเข้า</span></li>
+            {% endif %}
+          </ul>
+        </li>
+
+        {# ซ่อน 3 เมนูนี้เฉพาะหน้า Dashboard เพื่อไม่ให้ซ้ำกับปุ่มด้านล่าง #}
+        {% if request.endpoint != 'dashboard' %}
+          <li class="nav-item"><a href="{{ url_for('print_warehouse') }}" class="nav-link">พิมพ์รายงานคลัง</a></li>
+          <li class="nav-item"><a href="{{ url_for('report_lowstock') }}" class="nav-link text-warning">รายงานสินค้าน้อย</a></li>
+
+          {# >>> NEW: ปุ่ม Dashboard: Order จ่ายแล้ว #}
+          {% set _has_dash_issued = _ep and _ep('dashboard_issued') %}
+          {% if _has_dash_issued %}
+            <li class="nav-item">
+              <a class="btn btn-sm btn-outline-success ms-2 my-1" href="{{ url_for('dashboard_issued') }}">Orderจ่ายแล้ว</a>
+            </li>
+          {% endif %}
+          {# <<< NEW #}
+        {% endif %}
+
+        {# >>> ปุ่ม Dash Board: Orderยกเลิก (แสดงเมื่อมี endpoint) #}
+        {% set _has_dash_cancelled = _ep and _ep('dashboard_cancelled') %}
+        {% if _has_dash_cancelled %}
+          <li class="nav-item">
+            <a class="btn btn-sm btn-outline-danger ms-2 my-1" href="{{ url_for('dashboard_cancelled') }}">Orderยกเลิก</a>
+          </li>
+        {% endif %}
+
+        <li class="nav-item"><a href="{{ url_for('admin_clear') }}" class="nav-link">ล้างข้อมูล</a></li>
+        <li class="nav-item"><a href="{{ url_for('admin_users') }}" class="nav-link">ผู้ใช้งาน</a></li>
+      </ul>
+
+      <div class="d-flex align-items-center gap-3">
+        <span class="navbar-text text-warning small">
+          เวลา (ไทย/พ.ศ.): <span id="clockTH"></span>
+        </span>
+        {% if CURRENT_USER %}
+          <span class="badge text-bg-light text-dark">👤 {{ CURRENT_USER.username }}</span>
+          <a class="btn btn-sm btn-outline-light" href="{{ url_for('logout') }}">ออกจากระบบ</a>
+        {% else %}
+          <a class="btn btn-sm btn-outline-light" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="container-fluid py-3">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="container">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+{% block footer %}
+<footer class="bg-light border-top mt-5">
+  <div class="container py-3 small">
+    <div class="text-center">
+      <div>[VNIX Order Management] © {{ BE_YEAR }} บริษัท วีนิก กรุ๊ป จำกัด สงวนลิขสิทธิ์</div>
+      <div class="text-muted mt-2" style="white-space: pre-line;">
+ซอฟต์แวร์นี้ถือเป็นความลับทางการค้า (Trade Secret) และเป็นทรัพย์สินทางปัญญาที่มีมูลค่าของ บริษัท วีนิก กรุ๊ป จำกัด
+ได้รับการพัฒนาขึ้นเพื่อใช้เป็นการภายในของบริษัทฯ เท่านั้น ห้ามมิให้พนักงานหรือบุคคลใดๆ ที่ได้รับอนุญาตให้ใช้งาน ทำการเปิดเผย ทำซ้ำ ดัดแปลง แก้ไข แจกจ่าย จำหน่าย หรือถ่ายโอนซอฟต์แวร์นี้ (ไม่ว่าทั้งหมดหรือบางส่วน) ให้แก่บุคคลภายนอก โดยไม่ได้รับอนุญาตเป็นลายลักษณ์อักษรจากบริษัทฯ
+ผู้ฝ่าฝืนจะถูกดำเนินการทางวินัย และ/หรือ ดำเนินคดีตามกฎหมายแพ่งและอาญาในสถานหนักที่สุด
+      </div>
+    </div>
+  </div>
+</footer>
+{% endblock %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+<script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>

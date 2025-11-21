@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <title>รายงานไม่มีสินค้า (No Stock)</title>
+  <style>
+    html, body { font-family: Tahoma, "Noto Sans Thai", sans-serif; font-size: 12px; }
+    @page { size: A4 landscape; margin: 8mm; } /* ข้อ 3: พิมพ์ A4 พอดีหน้า */
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 10px; }
+    .toolbar .meta { color: #333; padding: 6px 10px; background: #f3f7ff; border: 1px solid #d9e3ff; border-radius: 4px; }
+    .btn { padding: 6px 10px; border: 1px solid #333; background: #fff; cursor: pointer; border-radius: 4px; text-decoration: none; display: inline-block; }
+    .btn.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+    .btn.success { background: #1b9e3d; color: #fff; border-color: #1b9e3d; }
+    .btn.ghost { background: #fff; color: #333; border-color: #bbb; }
+    .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .filters input[type="text"], .filters select, .filters input[type="number"] { height: 30px; padding: 0 8px; border: 1px solid #bbb; border-radius: 4px; }
+    .filters label { color: #555; font-size: 12px; }
+    /* บีบคอลัมน์อัตโนมัติให้พอดี A4 + ตัดบรรทัดทุกคอลัมน์ */
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      page-break-inside: auto; 
+      margin-top: 8px; 
+      table-layout: fixed; /* บังคับความกว้างคอลัมน์ */
+    }
+    thead th { position: sticky; top: 0; background: #f7f7f7; z-index: 5; }
+    th, td { 
+      border: 1px solid #d0d0d0; 
+      padding: 6px 8px; 
+      vertical-align: top; 
+      white-space: normal; /* อนุญาตให้ขึ้นบรรทัดใหม่ทุกคอลัมน์ */
+      overflow-wrap: anywhere; /* ตัดคำยาวได้ */
+      word-break: break-word; /* บังคับตัดคำ */
+      line-height: 1.15;
+    }
+    th { text-align: left; }
+    th a { color: #333; text-decoration: none; }
+    th a:hover { text-decoration: underline; }
+    /* กำหนดความกว้างคอลัมน์ที่มักยาว */
+    td:nth-child(6) { width: 240px; } /* ชื่อสินค้า */
+    td:nth-child(13) { width: 220px; } /* ประเภทขนส่ง */
+    tbody tr:nth-child(even) td { background: #f9f9f9; }
+    tr.group-start td { border-top: 3px solid #000; }
+    tr.group-end td   { border-bottom: 3px solid #000; }
+    tr.group-row { page-break-inside: avoid; }
+    td.sla-overdue { color: #b00020; font-weight: 600; }
+    tr.ok td   { background: #f2fff2 !important; }
+    tr.warn td { background: #fff6f6 !important; }
+    .muted { color: #777; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .capsule { padding: 2px 6px; border-radius: 10px; border: 1px solid #ddd; background: #f8f8f8; display: inline-block; }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-menu { display: none; position: absolute; right: 0; background: #fff; border: 1px solid #ccc; min-width: 200px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu a { display: block; padding: 6px 10px; text-decoration: none; color: #333; }
+    .dropdown-menu a:hover { background: #f3f3f3; }
+    /* ข้อ 6: กล่องลายเซ็น */
+    .signbox { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .sign { border: 1px dashed #bbb; border-radius: 6px; padding: 10px; min-height: 70px; }
+    .sign b { display:block; margin-bottom: 6px; }
+    @media print {
+      .toolbar { display: none; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      html, body { font-size: 11px; } /* ตัวเล็กลงตอนพิมพ์ */
+      th, td { 
+        white-space: normal !important; /* บังคับให้ตัดบรรทัดตอนพิมพ์ */
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      body { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  {% set csv_oids = (order_ids|join(",")) if order_ids is defined else "" %}
+
+  <div class="toolbar">
+    <!-- ข้อ 5: ปุ่มกลับหน้าหลัก -->
+    <a class="btn ghost" href="{{ url_for('dashboard') }}">← กลับหน้าหลัก</a>
+
+    <button class="btn" onclick="window.print()">พิมพ์หน้านี้</button>
+
+    {# ข้อ 2: เพิ่มการยืนยันก่อนพิมพ์และป้องกันกดซ้ำ #}
+    <form method="post" action="{{ url_for('report_nostock_print') }}" style="display:inline;"
+          onsubmit="return confirmPrintOnce(this)">
+      <input type="hidden" name="order_ids" value="{{ csv_oids }}">
+      <button class="btn primary" type="submit">พิมพ์ (บันทึกประวัติ)</button>
+    </form>
+
+    <!-- ข้อ 2: Excel รองรับ sort/filter เดียวกับหน้าจอ -->
+    <a class="btn ghost" href="{{ url_for('report_nostock_export',
+          platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel,
+          q=q, sort=sort_col, dir=sort_dir, round=round_sel) }}">Excel</a>
+
+    <!-- ข้อ 1: ตัดปุ่มพิมพ์ใบงานคลัง/พิมพ์ Picking ออก -->
+
+    <div class="meta">
+      <b>รายงานไม่มีสินค้า (No Stock)</b>
+      <span class="capsule">SKU สินค้าน้อยจริง: <b>{{ summary.sku_count if summary is defined else 0 }}</b></span>
+      <span class="capsule">จำนวนออเดอร์: <b>{{ summary.orders_count if summary is defined else 0 }}</b></span>
+      {# ข้อ 1: ซ่อนเวลาพิมพ์ในหน้าปกติ แสดงเฉพาะหน้าประวัติ #}
+      {% if is_history_view and printed_at %}
+        <span class="capsule">เวลาพิมพ์: <b>{{ printed_at.strftime('%d/%m/%Y %H:%M:%S') }}</b></span>
+      {% endif %}
+    </div>
+
+    <div class="dropdown" style="margin-left:auto;">
+      <button class="btn">ประวัติ ▼</button>
+      <div class="dropdown-menu">
+        <a href="{{ url_for('report_nostock_printed') }}">ดูทั้งหมด</a>
+        {% if available_dates is defined and available_dates %}
+          <div class="muted" style="padding:4px 10px;">เลือกตามวันที่:</div>
+          {% for d in available_dates %}
+            <a href="{{ url_for('report_nostock_printed', print_date=d) }}">{{ d }}</a>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <form class="toolbar filters" method="get" action="{{ url_for('report_nostock') if not is_history_view else url_for('report_nostock_printed') }}">
+    <label>แพลตฟอร์ม</label>
+    <select name="platform">
+      <option value="">ทั้งหมด</option>
+      <option value="shopee"  {% if platform_sel=='shopee' %}selected{% endif %}>Shopee</option>
+      <option value="lazada"  {% if platform_sel=='lazada' %}selected{% endif %}>Lazada</option>
+      <option value="tiktok"  {% if platform_sel=='tiktok' %}selected{% endif %}>TikTok</option>
+    </select>
+    <label>ร้าน</label>
+    <select name="shop_id">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops or [] %}
+        <option value="{{ s.id }}" {% if shop_sel and s.id==shop_sel|int %}selected{% endif %}>
+          {{ s.platform }} • {{ s.name }}
+        </option>
+      {% endfor %}
+    </select>
+    <label>ขนส่ง</label>
+    <select name="logistic">
+      <option value="">ทั้งหมด</option>
+      {% for lg in logistics or [] %}
+        <option value="{{ lg }}" {% if logistic_sel==lg %}selected{% endif %}>{{ lg }}</option>
+      {% endfor %}
+    </select>
+
+    {% if is_history_view %}
+      <label>วันที่พิมพ์</label>
+      <select name="print_date">
+        <option value="">ทั้งหมด</option>
+        {% for d in available_dates or [] %}
+          <option value="{{ d }}" {% if print_date_sel==d %}selected{% endif %}>{{ d }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input type="text" name="q" value="{{ q or '' }}" placeholder="ค้นหา (Order, SKU, Brand, สินค้า, ร้าน, ขนส่ง)">
+    {% endif %}
+
+    <!-- ข้อ 7: กรองรอบที่ -->
+    <label>รอบที่</label>
+    <select name="round">
+      <option value="all" {% if round_sel in (None, '', 'all') %}selected{% endif %}>ทั้งหมด</option>
+      {% for r in range(1,11) %}
+        <option value="{{ r }}" {% if round_sel|string==r|string %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+
+    <button class="btn" type="submit">กรอง</button>
+    {% set clear_url = url_for('report_nostock') if not is_history_view else url_for('report_nostock_printed') %}
+    {% if q or platform_sel or shop_sel or logistic_sel or (is_history_view and print_date_sel) or (round_sel not in (None, '', 'all')) %}
+      <a class="btn ghost" href="{{ clear_url }}">ล้างตัวกรอง</a>
+    {% endif %}
+  </form>
+
+  <!-- ข้อ 7: ปุ่มอัปเดตรอบทั้งหมดในออเดอร์ชุดนี้ -->
+  {% if not is_history_view and order_ids and order_ids|length>0 %}
+  <div class="toolbar" style="gap:6px;">
+    <label>อัปเดตจ่ายงาน(รอบที่):</label>
+    <input id="round-input" type="number" min="1" step="1" style="width:80px;height:30px;padding:0 6px;border:1px solid #bbb;border-radius:4px;">
+    <button class="btn success" type="button" onclick="updateRound()">บันทึกรอบให้ทุกออเดอร์ในรายงานนี้</button>
+    <span class="muted">จะอัปเดตเฉพาะคอลัมน์ <b>nostock_round</b> (ไม่เกี่ยวกับใบงานคลัง/Picking)</span>
+  </div>
+  {% endif %}
+
+  <table>
+    <thead>
+      <tr>
+        {% macro th(label, col) -%}
+          {% set target_ep = 'report_nostock_printed' if is_history_view else 'report_nostock' %}
+          {% set toggle = 'asc' if (sort_col!=col or sort_dir=='desc') else 'desc' %}
+          <th>
+            <!-- ข้อ 8: คลิกหัวคอลัมน์เพื่อเรียงได้ทั้งหน้ารายงานและประวัติ -->
+            <a href="{{ url_for(target_ep,
+                                platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel,
+                                q=q, print_date=print_date_sel, sort=col, dir=toggle, round=round_sel) }}"
+               title="เรียงตาม {{ label }}">{{ label }}
+               {% if sort_col==col %} <span class="muted">{{ '↑' if sort_dir=='asc' else '↓' }}</span>{% endif %}
+            </a>
+          </th>
+        {%- endmacro %}
+
+        {{ th('แพลตฟอร์ม', 'platform') }}
+        {{ th('ร้าน', 'store') }}
+        {{ th('เลข Order', 'order_no') }}
+        {{ th('SKU', 'sku') }}
+        {{ th('Brand', 'brand') }}
+        {{ th('ชื่อสินค้า', 'product_name') }}
+        {{ th('Stock', 'stock') }}
+        {{ th('Qty', 'qty') }}
+        {{ th('AllQty', 'allqty') }}
+        {{ th('เวลาที่ลูกค้าสั่ง', 'order_time') }}
+        {{ th('กำหนดส่ง', 'due_date') }}
+        {{ th('SLA (ชม.)', 'sla') }}
+        {{ th('ประเภทขนส่ง', 'shipping_type') }}
+        {{ th('จ่ายงาน(รอบที่)', 'assign_round') }}
+        {{ th('พิมพ์แล้ว(ครั้ง)', 'printed_count') }}
+        {{ th('วัน/เดือน/ปี/เวลา ที่พิมพ์', 'printed_at') }}
+      </tr>
+    </thead>
+    <tbody>
+      {% set prev_order = None %}
+      {% for r in rows %}
+        {% set is_start = (prev_order != r.order_no) %}
+        {% if not loop.last %}{% set next_order = rows[loop.index0 + 1].order_no %}{% else %}{% set next_order = None %}{% endif %}
+        {% set is_end = (next_order != r.order_no) %}
+        {% set ok = (r.stock is not none and r.allqty is not none and (r.stock|int) >= (r.allqty|int)) %}
+        <tr class="group-row {% if is_start %}group-start{% endif %} {% if is_end %}group-end{% endif %} {% if ok %}ok{% else %}warn{% endif %}">
+          <td>{{ r.platform }}</td>
+          <td>{{ r.store }}</td>
+          <td><b>{{ r.order_no }}</b></td>
+          <td>{{ r.sku }}</td>
+          <td>{{ r.brand }}</td>
+          <td class="wrap" style="max-width: 320px;">{{ r.product_name }}</td>  {# ข้อ 3: ลดความกว้างและให้ wrap #}
+          <td class="right">{{ r.stock }}</td>
+          <td class="right">{{ r.qty }}</td>
+          <td class="right">{{ r.allqty }}</td>
+          <td>{{ r.order_time }}</td>
+          <td>{{ r.due_date }}</td>
+          <td class="right {% if r.sla and ('เลยกำหนด' in (r.sla|string)) %}sla-overdue{% endif %}">{{ r.sla }}</td>
+          <td>{{ r.shipping_type }}</td>
+          <td class="center">{{ r.assign_round if r.assign_round is not none else '' }}</td>
+          <td class="center">{{ r.printed_count or 0 }}</td>
+          <td>{{ r.printed_at.strftime('%d/%m/%Y %H:%M:%S') if r.printed_at else '' }}</td>
+        </tr>
+        {% set prev_order = r.order_no %}
+      {% endfor %}
+      {% if not rows or rows|length == 0 %}
+        <tr><td colspan="16" class="center muted">ไม่พบข้อมูลตามตัวกรอง</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- ข้อ 6: กล่องลายเซ็นผู้จ่ายงาน/ผู้รับงาน -->
+  <div class="signbox">
+    <div class="sign">
+      <b>ลายเซ็นผู้จ่ายงาน</b>
+      วันที่/เวลา: _________________________________
+    </div>
+    <div class="sign">
+      <b>ลายเซ็นผู้รับงาน</b>
+      วันที่/เวลา: _________________________________
+    </div>
+  </div>
+
+  {% if is_history_view %}
+    <div class="toolbar" style="margin-top:10px;">
+      <div class="meta">📋 กำลังดูประวัติการพิมพ์รายงานไม่มีสินค้า</div>
+    </div>
+  {% endif %}
+
+  <!-- ข้อ 7: JavaScript สำหรับอัปเดตรอบ -->
+  <script>
+    // ข้อ 2: ฟังก์ชันยืนยันก่อนพิมพ์และป้องกันกดซ้ำ
+    function confirmPrintOnce(form){
+      if(!confirm('ยืนยันการพิมพ์และบันทึกประวัติ?')) return false;
+      const btn = form.querySelector('button[type=submit]');
+      if(btn){ btn.disabled = true; btn.textContent = 'กำลังบันทึก…'; }
+      return true;
+    }
+
+    async function updateRound() {
+      const v = document.getElementById('round-input').value;
+      if (!v) { alert('กรุณากรอกรอบที่'); return; }
+      const oids = "{{ csv_oids }}".split(',').filter(Boolean);
+      if (oids.length === 0) { alert('ไม่พบออเดอร์ในรายงานนี้'); return; }
+      if (!confirm('อัปเดตรอบเป็น ' + v + ' ให้กับ ' + oids.length + ' ออเดอร์?')) return;
+      try {
+        const res = await fetch('{{ url_for("update_nostock_round") }}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ order_ids: oids, round: v })
+        });
+        const j = await res.json();
+        if (j.success) {
+          alert(j.message || 'อัปเดตรอบสำเร็จ');
+          location.reload();
+        } else {
+          alert(j.message || 'อัปเดตรอบไม่สำเร็จ');
+        }
+      } catch (e) { alert('เกิดข้อผิดพลาด: ' + e); }
+    }
+  </script>
+</body>
+</html>

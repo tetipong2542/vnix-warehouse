@@ -1,0 +1,78 @@
+
+{% extends "base.html" %}
+{% block content %}
+<h4>ล้างข้อมูล</h4>
+
+<div class="alert alert-warning">
+  <strong>⚠️ คำเตือน:</strong> การล้างข้อมูลไม่สามารถกู้คืนได้ กรุณาตรวจสอบให้แน่ใจก่อนดำเนินการ
+</div>
+
+<form method="post" class="row g-3 mb-4">
+  <div class="col-12">
+    <h5>ล้างข้อมูลออเดอร์</h5>
+  </div>
+  <div class="col-md-4">
+    <select name="scope" class="form-select" required>
+      <option value="">-- เลือกขอบเขตการล้างข้อมูล --</option>
+      <option value="today">ลบเฉพาะข้อมูลของวันนี้</option>
+      <option value="all">ลบข้อมูลออเดอร์ทั้งหมด</option>
+      <option value="cancelled">ลบ Order ยกเลิกทั้งหมด</option>
+      <option value="issued">ลบ Order จ่ายแล้วทั้งหมด</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <button type="submit" class="btn btn-danger w-100" onclick="return confirm('คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูล?')">ล้างข้อมูล</button>
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-body">
+    <h6 class="card-title">คำอธิบายตัวเลือก:</h6>
+    <ul class="mb-0">
+      <li><strong>ลบเฉพาะข้อมูลของวันนี้:</strong> ลบเฉพาะออเดอร์ที่นำเข้าวันนี้</li>
+      <li><strong>ลบข้อมูลออเดอร์ทั้งหมด:</strong> ลบออเดอร์ทั้งหมดในระบบ</li>
+      <li><strong>ลบ Order ยกเลิกทั้งหมด:</strong> ลบออเดอร์ที่อยู่ในสถานะยกเลิก (CancelledOrder) ทั้งหมด</li>
+      <li><strong>ลบ Order จ่ายแล้วทั้งหมด:</strong> ลบออเดอร์ที่อยู่ในสถานะจ่ายแล้ว (IssuedOrder) ทั้งหมด</li>
+    </ul>
+  </div>
+</div>
+
+<div class="mt-4">
+  <h6>สถิติข้อมูลปัจจุบัน:</h6>
+  <div class="row">
+    <div class="col-md-3">
+      <div class="card bg-light">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-muted">ออเดอร์ทั้งหมด</h6>
+          <h4 class="mb-0">{{ stats.total_orders }}</h4>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-light">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-muted">Order ยกเลิก</h6>
+          <h4 class="mb-0">{{ stats.cancelled_orders }}</h4>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-light">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-muted">Order จ่ายแล้ว</h6>
+          <h4 class="mb-0">{{ stats.issued_orders }}</h4>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-light">
+        <div class="card-body">
+          <h6 class="card-subtitle mb-2 text-muted">ออเดอร์วันนี้</h6>
+          <h4 class="mb-0">{{ stats.today_orders }}</h4>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

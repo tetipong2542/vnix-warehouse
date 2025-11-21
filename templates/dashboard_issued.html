@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Order จ่ายงานแล้ว</h3>
+
+<form class="row gy-2 gx-2 align-items-end mb-3">
+  <div class="col-md-3">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select name="platform" class="form-select">
+      <option value="">ทั้งหมด</option>
+      {% for p in platforms %}
+        <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">ร้าน</label>
+    <select name="shop_id" class="form-select">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops %}
+        <option value="{{s.id}}" {% if shop_sel==s.id %}selected{% endif %}>{{s.platform}} • {{s.name}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">ค้นหาเลข Order</label>
+    <input type="text" name="q" class="form-control" value="{{q}}">
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-primary">กรอง</button>
+  </div>
+</form>
+
+<form method="post" action="{{ url_for('issued_unissue') }}" class="mb-2">
+  <button class="btn btn-warning" onclick="return confirm('ยกเลิกจ่ายงานสำหรับรายการที่เลือก?')">ยกเลิกจ่ายงาน (ที่เลือก)</button>
+  <table class="table table-sm table-bordered align-middle mt-2">
+    <thead class="table-light">
+      <tr>
+        <th style="width:36px"><input type="checkbox" id="chkAll" onclick="document.querySelectorAll('.rowchk').forEach(c=>c.checked=this.checked)"></th>
+        <th>เลข Order</th>
+        <th>แพลตฟอร์ม</th>
+        <th>ร้าน</th>
+        <th>ประเภทขนส่ง</th>
+        <th>วันที่จ่ายงาน</th>
+        <th>การกระทำ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><input type="checkbox" class="rowchk" name="order_ids[]" value="{{ r.order_id }}"></td>
+        <td><strong>{{ r.order_id }}</strong></td>
+        <td>{{ r.platform or '-' }}</td>
+        <td>{{ r.shop_name or '-' }}</td>
+        <td>{{ r.logistic or '-' }}</td>
+        <td>{{ r.issued_at|thai_be }}</td>
+        <td>
+          <form method="post" action="{{ url_for('issued_unissue') }}" class="d-inline">
+            <input type="hidden" name="order_id" value="{{ r.order_id }}">
+            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('ยืนยันยกเลิกจ่ายงาน?')">ยกเลิกจ่ายงาน</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not rows %}
+        <tr><td colspan="7" class="text-center text-muted">ไม่มีรายการ</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</form>
+{% endblock %}

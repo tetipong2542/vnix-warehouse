@@ -1,0 +1,8 @@
+
+/* สำหรับโปรเจกต์ที่ใช้ไฟล์ CSS แยก */
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #d0d0d0; padding: 6px 8px; vertical-align: top; }
+thead th { position: sticky; top: 0; background: #f7f7f7; }
+tr.group-start td { border-top: 3px solid #000; }
+tr.group-end td   { border-bottom: 3px solid #000; }
+tr.group-row { page-break-inside: avoid; }

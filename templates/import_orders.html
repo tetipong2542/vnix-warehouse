@@ -1,0 +1,48 @@
+
+{% extends "base.html" %}
+{% block content %}
+<h4 class="mb-3">นำเข้า Orders</h4>
+
+<form method="post" enctype="multipart/form-data" class="row g-3">
+  <!-- แพลตฟอร์ม -->
+  <div class="col-md-3">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select name="platform" class="form-select" required>
+      <option value="">เลือกแพลตฟอร์ม</option>
+      <option>Shopee</option>
+      <option>TikTok</option>
+      <option>Lazada</option>
+      <option>อื่นๆ</option>
+    </select>
+  </div>
+
+  <!-- ชื่อร้าน (ไม่บังคับกรอก เพราะอ่านจากไฟล์ได้) -->
+  <div class="col-md-3">
+    <label class="form-label">ชื่อร้าน</label>
+    <input name="shop_name"
+           class="form-control"
+           list="shops"
+           placeholder="พิมพ์หรือเลือก (ถ้าในไฟล์มีคอลัมน์ &quot;ชื่อร้าน&quot; จะใช้จากไฟล์)">
+    <datalist id="shops">
+      {% for s in shops %}
+        <option value="{{ s.name }}">{{ s.name }} ({{ s.platform }})</option>
+      {% endfor %}
+    </datalist>
+  </div>
+
+  <!-- ไฟล์ Excel -->
+  <div class="col-md-4">
+    <label class="form-label">ไฟล์ Excel</label>
+    <input type="file" name="file" class="form-control" required>
+  </div>
+
+  <div class="col-12 d-flex gap-2">
+    <button class="btn btn-primary">นำเข้า</button>
+    {% if has_endpoint('download_orders_template') %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('download_orders_template') }}">
+        ดาวน์โหลด Template
+      </a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}
