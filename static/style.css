@@ -1,0 +1,6 @@
+
+.table thead tr.filters input{ width:100%; }
+
+.hide-dev{
+    display: none!important;
+}

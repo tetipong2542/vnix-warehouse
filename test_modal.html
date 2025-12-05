@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Modal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Test Modal</h1>
+        <button type="button" class="btn btn-info" id="btnManageConfigs">
+            <i class="bi bi-gear"></i> จัดการ
+        </button>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal fade" id="manageConfigsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">จัดการ API Configurations</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Modal Content Here</p>
+                    <div id="configsLoading">Loading...</div>
+                    <div id="configsTableContainer" style="display:none;">Table</div>
+                    <div id="configsEmpty" style="display:none;">Empty</div>
+                    <div id="configsError" style="display:none;">Error: <span id="configsErrorMessage"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Simple test
+        document.getElementById('btnManageConfigs').addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Button clicked!');
+
+            const modalEl = document.getElementById('manageConfigsModal');
+            if (modalEl) {
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+                console.log('Modal shown');
+            } else {
+                console.error('Modal element not found');
+            }
+        });
+    </script>
+</body>
+</html>

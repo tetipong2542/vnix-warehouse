@@ -1,0 +1,82 @@
+
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3 align-items-end mb-2">
+  <div class="col-auto"><h4 class="mb-0">Dashboard</h4></div>
+  <div class="col-auto d-flex gap-2 flex-wrap">
+    <!-- KPI ตามสถานะรายการสินค้า -->
+    <button class="btn btn-sm btn-success kpi-filter" data-status="READY_ACCEPT">พร้อมรับ: {{ kpis.ready }}</button>
+    <button class="btn btn-sm btn-secondary kpi-filter" data-status="ACCEPTED">รับแล้ว: {{ kpis.accepted }}</button>
+    <button class="btn btn-sm btn-warning kpi-filter" data-status="LOW_STOCK">สินค้าน้อย: {{ kpis.low }}</button>
+    <button class="btn btn-sm btn-danger kpi-filter" data-status="SHORTAGE">ไม่มีสินค้า: {{ kpis.nostock }}</button>
+    <button class="btn btn-sm btn-outline-danger kpi-filter" data-status="NOT_ENOUGH">สินค้าไม่พอส่ง: {{ kpis.notenough }}</button>
+    <button class="btn btn-sm btn-dark kpi-filter" data-status="PACKED">แพ็คแล้ว: {{ kpis.packed }}</button>
+
+    <!-- KPI ใหม่: รวมรายการ/รวมจำนวนชิ้น/รวม Order -->
+    <span class="badge text-bg-light text-dark">รวมรายการสินค้า: {{ kpis.total_items }}</span>
+    <span class="badge text-bg-light text-dark">รวมจำนวนสินค้า: {{ kpis.total_qty }}</span>
+    <span class="badge text-bg-primary">รวม Order: {{ kpis.orders_unique }}</span>
+
+    <!-- ปุ่มกรองแบบใหม่: Orderพร้อมรับ (ทุกชิ้นในออเดอร์พร้อมส่ง) -->
+    <button class="btn btn-sm btn-outline-success kpi-filter" data-status="ORDER_READY">
+      Orderพร้อมรับ: {{ kpis.orders_ready }}
+    </button>
+  </div>
+</div>
+
+<form class="row gy-2 gx-2 align-items-end mb-2" method="get">
+  <div class="col-md-2">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select class="form-select" name="platform">
+      <option value="">ทั้งหมด</option>
+      {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+        <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">ชื่อร้าน</label>
+    <select class="form-select" name="shop_id">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops %}
+        <option value="{{ s.id }}" {% if shop_sel and shop_sel|int==s.id %}selected{% endif %}>{{ s.platform }} • {{ s.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">วันที่นำเข้า</label>
+    <input type="date" class="form-control" name="import_date" value="{{ import_date_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">จากวันที่</label>
+    <input type="date" class="form-control" name="date_from" value="{{ date_from_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">ถึงวันที่</label>
+    <input type="date" class="form-control" name="date_to" value="{{ date_to_sel }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">สถานะ</label>
+    <select class="form-select" name="status">
+      <option value="">ทั้งหมด</option>
+      <option value="READY_ACCEPT" {% if status_sel=='READY_ACCEPT' %}selected{% endif %}>พร้อมรับ</option>
+      <option value="ACCEPTED" {% if status_sel=='ACCEPTED' %}selected{% endif %}>รับแล้ว</option>
+      <option value="LOW_STOCK" {% if status_sel=='LOW_STOCK' %}selected{% endif %}>สินค้าน้อย</option>
+      <option value="SHORTAGE" {% if status_sel=='SHORTAGE' %}selected{% endif %}>ไม่มีสินค้า</option>
+      <option value="NOT_ENOUGH" {% if status_sel=='NOT_ENOUGH' %}selected{% endif %}>สินค้าไม่พอส่ง</option>
+      <option value="PACKED" {% if status_sel=='PACKED' %}selected{% endif %}>แพ็คแล้ว</option>
+      <!-- สถานะพิเศษ: ออเดอร์พร้อมรับทั้งออเดอร์ -->
+      <option value="ORDER_READY" {% if status_sel=='ORDER_READY' %}selected{% endif %}>Orderพร้อมรับ</option>
+    </select>
+  </div>
+  <div class="col-12 d-flex gap-2">
+    <button class="btn btn-primary">กรอง</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">ล้างฟิลเตอร์</a>
+    <a class="btn btn-success" href="{{ url_for('export_excel', platform=platform_sel, shop_id=shop_sel, import_date=import_date_sel, date_from=date_from_sel, date_to=date_to_sel, status=status_sel) }}">Export Excel (มุมมองนี้)</a>
+    <button class="btn btn-outline-dark" type="button" id="clearTableFilters">ล้างตัวกรองตาราง</button>
+    <a class="btn btn-outline-primary" href="{{ url_for('print_warehouse') }}">พิมพ์รายงานคลัง</a>
+  </div>
+</form>
+
+<!-- ที่เหลือของไฟล์เดิม (ตาราง/ตัวกรองคอลัมน์/ปุ่มทำงาน) คงเดิมได้เลย -->
+{% endblock %}

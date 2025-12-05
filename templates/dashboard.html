@@ -1,0 +1,1198 @@
+
+{# templates/dashboard.html #}
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Header + KPI -->
+<div class="row g-3 align-items-end mb-2">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        📊
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">Dashboard</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          {% if all_time %}
+            <span class="badge bg-info text-white ms-2">📅 ข้อมูลทั้งหมด (All Time)</span>
+          {% elif use_default_view %}
+             <span class="badge bg-primary text-white ms-2">⚡ มุมมองปกติ (งานค้างทั้งหมด + งานจบวันนี้)</span>
+          {% else %}
+             <span class="badge bg-secondary text-white ms-2">🔍 มุมมองแบบกำหนดเอง (Filtered)</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-auto d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-success kpi-filter" data-status="READY_ACCEPT">พร้อมรับ: {{ kpis.ready }}</button>
+    <button type="button" class="btn btn-sm btn-success kpi-filter" data-status="ACCEPTED">รับแล้ว: {{ kpis.accepted }}</button>
+    <button type="button" class="btn btn-sm btn-warning kpi-filter" data-status="LOW_STOCK">สินค้าน้อย: {{ kpis.low }}</button>
+    <button type="button" class="btn btn-sm btn-danger kpi-filter" data-status="SHORTAGE">ไม่มีสินค้า: {{ kpis.nostock }}</button>
+    <button type="button" class="btn btn-sm btn-outline-danger kpi-filter" data-status="NOT_ENOUGH">สินค้าไม่พอส่ง: {{ kpis.notenough }}</button>
+    <button type="button" class="btn btn-sm btn-dark kpi-filter" data-status="PACKED">แพ็คแล้ว: {{ kpis.packed }}</button>
+
+    <span class="badge text-bg-light text-dark">รวมรายการสินค้า: {{ kpis.total_items }}</span>
+    <span class="badge text-bg-light text-dark">รวมจำนวนสินค้า: {{ kpis.total_qty }}</span>
+    
+    <!-- ปุ่มรายงานผล (ตามล็อตที่เลือก) -->
+    <button type="button" class="btn btn-sm btn-info text-white fw-bold kpi-filter" data-status="TOTAL">
+      รวม Order: {{ kpis.orders_total or 0 }}
+    </button>
+    
+    <!-- ปุ่มงานค้าง (ยอดรวมทั้งระบบ) -->
+    <button type="button" class="btn btn-sm btn-hot-pending kpi-filter pulse-active" data-status="">
+      🔥 รวม Orderค้าง: <span style="font-size: 1.1em;">{{ kpis.orders_unique }}</span>
+    </button>
+
+    <button type="button" class="btn btn-sm btn-success text-white fw-bold kpi-filter kpi-order-ready" data-status="ORDER_READY">
+      Orderพร้อมรับ: {{ kpis.orders_ready }}
+    </button>
+    <button type="button" class="btn btn-sm btn-warning text-dark fw-bold kpi-filter kpi-order-low" data-status="ORDER_LOW_STOCK">
+      Orderสินค้าน้อย: {{ kpis.orders_low }}
+    </button>
+    <button type="button" class="btn btn-sm btn-danger text-white fw-bold kpi-filter" data-status="ORDER_PROBLEM" style="border: 2px solid #dc3545; box-shadow: 0 2px 4px rgba(220,53,69,0.3);">
+      Orderไม่มี/ไม่พอ: {{ kpis.orders_problem or 0 }}
+    </button>
+    
+    <button type="button" class="btn btn-sm btn-outline-secondary text-dark fw-bold kpi-filter kpi-order-nosale" data-status="ORDER_NO_SALES">
+      Orderยังไม่มีการเปิดใบขาย: {{ kpis.orders_nosales or 0 }}
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-warning text-dark fw-bold kpi-filter" data-status="ORDER_NOT_IN_SBS" style="border-width:2px;">
+      Orderยังไม่นำเข้าSBS: {{ kpis.orders_not_in_sbs or 0 }}
+    </button>
+    
+    <a class="btn btn-sm btn-info text-white fw-bold" href="{{ url_for('dashboard_issued') }}">
+      Orderจ่ายแล้ว: {{ issued_count or 0 }}
+    </a>
+    <button type="button" class="btn btn-sm btn-secondary text-white fw-bold kpi-filter kpi-order-cancelled" data-status="ORDER_CANCELLED">
+      Orderยกเลิก: {{ kpis.orders_cancelled or 0 }}
+    </button>
+    <button type="button" class="btn btn-sm text-white fw-bold kpi-filter" data-status="ORDER_CANCELLED_PACKED" style="background-color: #6c757d; border: 2px solid #343a40; border-left: 5px solid #dc3545;">
+      Orderยกเลิก/หลังแพ็ค: {{ kpis.orders_cancelled_packed or 0 }}
+    </button>
+    <a class="btn btn-sm text-white fw-bold" href="{{ url_for('dashboard_deleted') }}" style="background-color: #5a6268; border: 2px solid #343a40;">
+      <i class="bi bi-trash"></i> Orderที่ถูกลบ: {{ kpis.orders_deleted or 0 }}
+    </a>
+  </div>
+</div>
+
+<!-- ฟิลเตอร์หลัก -->
+<form class="row gy-2 gx-2 align-items-end mb-2" method="get" id="filterForm">
+  {% if all_time %}
+  <input type="hidden" name="all_time" value="1">
+  {% endif %}
+
+  <div class="col-md-2">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select class="form-select" name="platform">
+      <option value="">ทั้งหมด</option>
+      {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+        <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">ชื่อร้าน</label>
+    <select class="form-select" name="shop_id">
+      <option value="">ทั้งหมด</option>
+      {% for s in shops %}
+        <option value="{{ s.id }}" {% if shop_sel and shop_sel|int==s.id %}selected{% endif %}>
+          {{ s.platform }} • {{ s.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  
+  <div class="col-md-2">
+    <label class="form-label">วันที่นำเข้า (เริ่ม)</label>
+    <input type="date" class="form-control" name="import_from" value="{{ import_from_sel or '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">ถึงวันที่</label>
+    <input type="date" class="form-control" name="import_to" value="{{ import_to_sel or '' }}">
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">ลูกค้าสั่ง (เริ่ม)</label>
+    <input type="date" class="form-control" name="date_from" value="{{ date_from_sel or '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">ถึงวันที่</label>
+    <input type="date" class="form-control" name="date_to" value="{{ date_to_sel or '' }}">
+  </div>
+  
+  <div class="col-md-2">
+    <label class="form-label">สถานะ</label>
+    <select class="form-select" name="status">
+      <option value="">มุมมองปกติ (ซ่อนงานจบ)</option>
+      <option value="TOTAL" {% if status_sel=='TOTAL' %}selected{% endif %}>⭐ แสดงทั้งหมด (รวมงานจบ)</option>
+      <option value="READY_ACCEPT" {% if status_sel=='READY_ACCEPT' %}selected{% endif %}>พร้อมรับ</option>
+      <option value="ACCEPTED" {% if status_sel=='ACCEPTED' %}selected{% endif %}>รับแล้ว</option>
+      <option value="LOW_STOCK" {% if status_sel=='LOW_STOCK' %}selected{% endif %}>สินค้าน้อย</option>
+      <option value="SHORTAGE" {% if status_sel=='SHORTAGE' %}selected{% endif %}>ไม่มีสินค้า</option>
+      <option value="NOT_ENOUGH" {% if status_sel=='NOT_ENOUGH' %}selected{% endif %}>สินค้าไม่พอส่ง</option>
+      <option value="PACKED" {% if status_sel=='PACKED' %}selected{% endif %}>แพ็คแล้ว</option>
+      <option value="ORDER_READY" {% if status_sel=='ORDER_READY' %}selected{% endif %}>Orderพร้อมรับ</option>
+      <option value="ORDER_LOW_STOCK" {% if status_sel=='ORDER_LOW_STOCK' %}selected{% endif %}>Orderสินค้าน้อย</option>
+      <option value="ORDER_NO_SALES" {% if status_sel=='ORDER_NO_SALES' %}selected{% endif %}>Orderยังไม่มีการเปิดใบขาย</option>
+      <option value="ORDER_CANCELLED" {% if status_sel=='ORDER_CANCELLED' %}selected{% endif %}>Orderยกเลิก</option>
+      <option value="ORDER_CANCELLED_PACKED" {% if status_sel=='ORDER_CANCELLED_PACKED' %}selected{% endif %}>Orderยกเลิก/หลังแพ็ค</option>
+      <option value="ORDER_NOT_IN_SBS" {% if status_sel=='ORDER_NOT_IN_SBS' %}selected{% endif %}>Orderยังไม่นำเข้าSBS</option>
+      <option value="ORDER_PROBLEM" {% if status_sel=='ORDER_PROBLEM' %}selected{% endif %}>Orderไม่มี/ไม่พอส่ง</option>
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">ค้นหาทั้งหมด (Global Search)</label>
+    <input type="text" class="form-control" name="q" value="{{ q or '' }}" placeholder="เลข Order, SKU, Brand, ชื่อสินค้า...">
+  </div>
+  <div class="col-12 d-flex gap-2 flex-wrap mt-2">
+    <button id="btn-filter" class="btn btn-primary" type="submit">กรอง</button>
+    
+    <a id="btn-reset" class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">
+      <i class="bi bi-arrow-counterclockwise"></i> ล้างฟิลเตอร์ทั้งหมด
+    </a>
+    
+    {% if mode == 'today' %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary text-white fw-bold shadow-sm" style="border: 2px solid #6c757d;">
+            <i class="bi bi-arrow-left-circle-fill"></i> กลับไปดู Order ค้าง
+        </a>
+        <span class="badge bg-success align-self-center p-2 fs-6 shadow-sm">
+            <i class="bi bi-check-circle-fill me-1"></i> โหมด: Order ปัจจุบัน (วันนี้)
+        </span>
+    {% else %}
+        <a href="{{ url_for('dashboard', mode='today') }}" class="btn fw-bold shadow-sm text-white" 
+           style="background-color: #6610f2; border: 2px solid #520dc2;">
+           <i class="bi bi-robot me-1" style="font-size: 1.1em;"></i> ดู Order ปัจจุบัน
+        </a>
+    {% endif %}
+
+    {% if not all_time %}
+    <a id="btn-all-time" class="btn btn-outline-info" href="{{ url_for('dashboard', all_time='1') }}">
+      📅 ดูข้อมูลทั้งหมด (All Time)
+    </a>
+    {% else %}
+    <a id="btn-all-time-active" class="btn btn-info text-white" href="{{ url_for('dashboard') }}">
+      ✅ กำลังดู All Time (กดเพื่อยกเลิก)
+    </a>
+    {% endif %}
+    
+    <a id="btn-export" class="btn btn-success ms-auto"
+       href="{{ url_for('export_excel',
+                        platform=platform_sel,
+                        shop_id=shop_sel,
+                        import_from=import_from_sel,
+                        import_to=import_to_sel,
+                        date_from=date_from_sel,
+                        date_to=date_to_sel,
+                        status=status_sel,
+                        all_time=all_time,
+                        mode=mode,
+                        q=q) }}">
+      Export Excel
+    </a>
+  </div>
+</form>
+
+<!-- แถบรายงาน -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <!-- Warehouse with dropdown -->
+  <div class="btn-group">
+    <a class="btn btn-outline-primary" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel) }}">พิมพ์รายงานคลัง</a>
+    <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+      <span class="visually-hidden">Toggle Dropdown</span>
+    </button>
+    <ul class="dropdown-menu">
+      <li><a class="dropdown-item" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel) }}">พิมพ์ใบงานคลัง</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item" href="{{ url_for('warehouse_printed_history', platform=platform_sel, shop_id=shop_sel) }}">ดูงานที่พิมพ์แล้ว</a></li>
+    </ul>
+  </div>
+  
+  <!-- Picking List with dropdown -->
+  <div class="btn-group">
+    <a class="btn btn-outline-success" href="{{ url_for('picking_list', platform=platform_sel, shop_id=shop_sel) }}">Picking List (รวมยอดหยิบ)</a>
+    <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+      <span class="visually-hidden">Toggle Dropdown</span>
+    </button>
+    <ul class="dropdown-menu">
+      <li><a class="dropdown-item" href="{{ url_for('picking_list', platform=platform_sel, shop_id=shop_sel) }}">พิมพ์ Picking List</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item" href="{{ url_for('picking_printed_history', platform=platform_sel, shop_id=shop_sel) }}">ดูงานที่พิมพ์แล้ว</a></li>
+    </ul>
+  </div>
+  
+  <a class="btn btn-outline-warning" style="color: #d39e00; border-color: #d39e00; font-weight: bold; border-width: 2px;" href="{{ url_for('report_lowstock', platform=platform_sel, shop_id=shop_sel) }}">รายงานสินค้าน้อย</a>
+  <a class="btn btn-outline-danger" href="{{ url_for('report_nostock', platform=platform_sel, shop_id=shop_sel) }}">รายงานไม่มีสินค้า</a>
+  <a class="btn btn-outline-danger" href="{{ url_for('report_notenough', platform=platform_sel, shop_id=shop_sel) }}" style="border-width: 2px;">รายงานสินค้าไม่พอส่ง</a>
+</div>
+
+<!-- แถบ Bulk -->
+<div id="bulk-bar" class="alert alert-info d-print-none d-flex justify-content-between align-items-center d-none">
+  <div>เลือก <b id="selected-count">0</b> รายการ</div>
+  <div class="btn-group">
+    <a href="#" class="btn btn-success" id="btn-bulk-accept-confirm">กดรับที่เลือก</a>
+    <a href="#" class="btn btn-warning" id="btn-bulk-cancel">ยกเลิกที่เลือก</a>
+    <button type="button" class="btn btn-outline-danger" onclick="confirmBulkDeleteOrders()">ลบ Order</button>
+    <a href="#" class="btn btn-outline-secondary" id="btn-bulk-clear">ล้างการเลือก</a>
+  </div>
+</div>
+
+<!-- ฟอร์มซ่อนสำหรับ bulk delete -->
+<form id="bulk-delete-form" method="post" action="{{ url_for('bulk_delete_orders') }}"></form>
+
+<!-- CSS เพิ่มความชัด + กรอบเลข Order -->
+<style>
+  {% if mode == 'today' %}
+  /* ===== โหมด Order ปัจจุบัน (วันนี้) - ธีมสีเขียวมิ้นต์ ===== */
+  
+  /* เพิ่มแถบสีด้านบนสุดของเว็บ */
+  body::before {
+    content: "";
+    display: block;
+    height: 5px;
+    width: 100%;
+    background: linear-gradient(to right, #198754, #20c997);
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+  }
+  
+  /* เปลี่ยนสีพื้นหลังส่วนหัวให้รู้ว่าเป็นโหมด "ปัจจุบัน" */
+  .page-title-icon {
+    background: linear-gradient(135deg, #198754, #20c997) !important;
+    box-shadow: 0 .25rem .5rem rgba(25, 135, 84, .35) !important;
+  }
+  
+  /* เปลี่ยนสี Badge สถานะมุมมอง */
+  .page-title .badge.bg-primary,
+  .page-title .badge.bg-secondary {
+    background-color: #198754 !important;
+  }
+  
+  /* เปลี่ยนสี navbar หลัก (ถ้ามี) */
+  .navbar-brand, .page-title-main {
+    color: #198754 !important;
+  }
+  
+  /* ขอบตารางเป็นสีเขียว */
+  #ordersTable {
+    border-color: #198754 !important;
+  }
+  #ordersTable thead {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9) !important;
+  }
+  #ordersTable thead th {
+    border-color: #a5d6a7 !important;
+    color: #1b5e20 !important;
+  }
+  
+  /* กรอบ Order Cell เปลี่ยนเป็นสีเขียว */
+  #ordersTable td.order-cell {
+    border-left: 2px solid #198754 !important;
+    border-right: 2px solid #198754 !important;
+    color: #1b5e20;
+  }
+  tr.order-group-start td.order-cell {
+    border-top: 2px solid #198754 !important;
+    box-shadow: inset 0 2px 0 0 rgba(25, 135, 84, 0.1);
+  }
+  tr.order-group-end td.order-cell {
+    border-bottom: 2px solid #198754 !important;
+    box-shadow: inset 0 -2px 0 0 rgba(25, 135, 84, 0.1);
+  }
+  {% endif %}
+
+  /* ===== สไตล์แถว Order ที่ถูกยกเลิก ===== */
+  tr.cancelled-row {
+    background-color: #f8d7da !important;
+    opacity: 0.7;
+  }
+  tr.cancelled-row td {
+    color: #721c24 !important;
+    text-decoration: line-through;
+    text-decoration-color: rgba(114, 28, 36, 0.4);
+  }
+  tr.cancelled-row td.order-cell,
+  tr.cancelled-row td:last-child,
+  tr.cancelled-row td:nth-last-child(2) {
+    text-decoration: none !important; /* ไม่ขีดฆ่าเลข Order และหมายเหตุ */
+  }
+  tr.cancelled-row:hover {
+    opacity: 1;
+    background-color: #f5c6cb !important;
+  }
+
+  /* สไตล์ปุ่ม Hot Pending (รวม Order ค้าง) */
+  .btn-hot-pending {
+    /* ไล่สีจากส้มไปแดง ให้ดูร้อนแรง */
+    background: linear-gradient(135deg, #ff9966 0%, #ff5e62 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 800 !important; /* ตัวหนาพิเศษ */
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(255, 94, 98, 0.4); /* เงาสีแดงจางๆ */
+    transition: all 0.3s ease;
+  }
+
+  /* เอฟเฟกต์ตอนเอาเมาส์ชี้: ปุ่มลอยขึ้น + เงาเข้มขึ้น */
+  .btn-hot-pending:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 94, 98, 0.6);
+    filter: brightness(1.1);
+  }
+
+  /* อนิเมชั่นไฟกระพริบเบาๆ */
+  @keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(255, 94, 98, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(255, 94, 98, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 94, 98, 0); }
+  }
+
+  /* ถ้าอยากให้มันกระพริบเรียกร้องความสนใจตลอดเวลา ให้เติม class 'pulse-active' */
+  .pulse-active {
+    animation: pulse-red 2s infinite;
+  }
+
+  /* Page Title Styling */
+  .page-title {
+    gap: .75rem;
+  }
+
+  .page-title-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    background: linear-gradient(135deg, #0d6efd, #6610f2);
+    color: #fff;
+    box-shadow: 0 .25rem .5rem rgba(13, 110, 253, .35);
+  }
+
+  .page-title-main {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: .03em;
+    color: #212529;
+  }
+
+  /* Adjust spacing */
+  .row.g-3.align-items-end.mb-2 {
+    margin-bottom: .75rem !important;
+  }
+
+  /* KPI Buttons */
+  .kpi-order-ready{filter:saturate(1.25) contrast(1.1);border-width:2px;}
+  .kpi-order-ready:hover{box-shadow:0 0 0 .25rem rgba(25,135,84,.45);}
+  .kpi-order-low{filter:saturate(1.25) contrast(1.1);border-width:2px;}
+  .kpi-order-low:hover{box-shadow:0 0 0 .25rem rgba(255,193,7,.45);}
+  .kpi-order-nosale{filter:saturate(1.1) contrast(1.05);border-width:2px;}
+  .kpi-order-nosale:hover{box-shadow:0 0 0 .25rem rgba(108,117,125,.45);}
+  .kpi-order-cancelled{filter:saturate(1.1) contrast(1.05);border-width:2px;}
+  .kpi-order-cancelled:hover{box-shadow:0 0 0 .25rem rgba(108,117,125,.45);}
+
+  /* ซ่อนไอคอน sort เฉพาะคอลัมน์แรก (checkbox) */
+  #ordersTable thead th:first-child:before,
+  #ordersTable thead th:first-child:after { display: none !important; }
+
+  /* --- [แก้ใหม่] ดีไซน์กรอบเลข Order แบบ Modern Blue --- */
+
+  /* 1. ดีไซน์หลักของเซลล์ Order */
+  #ordersTable td.order-cell {
+    /* ใช้สีน้ำเงินเข้ม เข้ากับธีมเว็บ */
+    border-left: 2px solid #0d6efd !important;
+    border-right: 2px solid #0d6efd !important;
+    
+    /* ตัวหนาและสีน้ำเงินเข้ม */
+    font-weight: 700;
+    color: #084298; 
+    
+    /* จัดกลางแนวตั้ง */
+    vertical-align: middle;
+    
+    /* เพิ่มพื้นหลังสีขาวจางๆ ให้ข้อความเด่นขึ้นจากพื้นหลังสีชมพู */
+    background-color: rgba(255, 255, 255, 0.6) !important;
+  }
+
+  /* 2. ปิดหัวกล่อง (เส้นบน) */
+  tr.order-group-start td.order-cell {
+    border-top: 2px solid #0d6efd !important;
+    /* (ลูกเล่น) ทำมุมมนเทียมด้วยเงา */
+    box-shadow: inset 0 2px 0 0 rgba(13, 110, 253, 0.1); 
+  }
+
+  /* 3. ปิดท้ายกล่อง (เส้นล่าง) */
+  tr.order-group-end td.order-cell {
+    border-bottom: 2px solid #0d6efd !important;
+    /* (ลูกเล่น) ทำมุมมนเทียมด้วยเงา */
+    box-shadow: inset 0 -2px 0 0 rgba(13, 110, 253, 0.1);
+  }
+
+  /* 4. ล้างค่าเส้นขอบเซลล์อื่นให้บางลง */
+  tr.order-group-start td:not(.order-cell),
+  tr.order-group-end td:not(.order-cell) {
+    border-top: 1px solid #dee2e6 !important;
+    border-bottom: 1px solid #dee2e6 !important;
+  }
+  
+  /* --- จบส่วนตีกรอบ --- */
+  
+  /* Remove default DataTables sorting icons */
+  table.dataTable thead .sorting:before,
+  table.dataTable thead .sorting:after,
+  table.dataTable thead .sorting_asc:before,
+  table.dataTable thead .sorting_asc:after,
+  table.dataTable thead .sorting_desc:before,
+  table.dataTable thead .sorting_desc:after {
+    display: none !important;
+  }
+  
+  /* Excel-like sorting indicators - must come after removing defaults */
+  table.dataTable thead th.sorting,
+  table.dataTable thead th.sorting_asc,
+  table.dataTable thead th.sorting_desc {
+    cursor: pointer;
+    position: relative;
+    padding-right: 30px !important;
+    user-select: none;
+  }
+  
+  /* Custom sort icons with higher specificity */
+  table.dataTable thead th.sorting::after {
+    content: '⇅' !important;
+    display: inline-block !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    opacity: 0.4 !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
+  }
+  
+  table.dataTable thead th.sorting_asc::after {
+    content: '▲' !important;
+    display: inline-block !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    opacity: 1 !important;
+    font-size: 12px !important;
+    color: #0d6efd !important;
+    font-weight: bold !important;
+    line-height: 1 !important;
+  }
+  
+  table.dataTable thead th.sorting_desc::after {
+    content: '▼' !important;
+    display: inline-block !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    opacity: 1 !important;
+    font-size: 12px !important;
+    color: #0d6efd !important;
+    font-weight: bold !important;
+    line-height: 1 !important;
+  }
+  
+  /* Hover effect */
+  table.dataTable thead th.sorting:hover,
+  table.dataTable thead th.sorting_asc:hover,
+  table.dataTable thead th.sorting_desc:hover {
+    background-color: #e9ecef !important;
+  }
+</style>
+
+<!-- ตารางหลัก -->
+<div class="table-responsive">
+  <div class="alert alert-info alert-dismissible fade show d-print-none" role="alert">
+    <strong>💡 วิธีใช้งานตาราง:</strong>
+    <ul class="mb-0 mt-2">
+      <li><strong>ค้นหา:</strong> ใช้ช่อง "ค้นหาทั้งหมด (Global Search)" ด้านบนเพื่อค้นหาข้อมูล</li>
+      <li><strong>เรียงข้อมูล:</strong> คลิกที่หัวคอลัมน์เพื่อเรียงข้อมูล (A-Z, ก-ฮ, น้อย→มาก)</li>
+      <li><strong>คลิกอีกครั้ง:</strong> เรียงกลับด้าน (Z-A, ฮ-ก, มาก→น้อย)</li>
+      <li><strong>ไอคอน:</strong> ⇅ = สามารถเรียงได้ | ▲ = เรียง A-Z / น้อย→มาก | ▼ = เรียง Z-A / มาก→น้อย</li>
+    </ul>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+  </div>
+  
+  <table id="ordersTable" class="table table-striped table-bordered table-sm align-middle">
+    <thead class="table-light">
+      <tr>
+        <th class="text-center" style="width:36px;"><input type="checkbox" id="check-all" title="เลือกทั้งหมด"></th>
+        <th>แพลตฟอร์ม</th>
+        <th>ร้าน</th>
+        <th>เลข Order</th>
+        <th>SKU</th>
+        <th>Brand</th>
+        <th>ชื่อสินค้า</th>
+        <th>Stock</th>
+        <th>Qty</th>
+        <th>AllQty</th>
+        <th>เวลาที่ลูกค้าสั่ง</th>
+        <th>กำหนดส่ง</th>
+        <th>SLA</th>
+        <th>ประเภทขนส่ง</th>
+        <th>สั่งขาย</th>
+        <th>สถานะ</th>
+        <th>การทำงาน</th>
+        <th>ผู้กดรับ</th>
+        <th>หมายเหตุ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      {% set overdue = (r.sla and r.sla.startswith('เลยกำหนด')) and (r.allocation_status != 'PACKED') %}
+      {% set can_accept = (not r.is_cancelled) and (not r.packed) and (not r.is_issued) and (r.allocation_status != 'PACKED') and (r.stock_qty > 0) %}
+      <tr class="{% if r.is_cancelled %}cancelled-row{% elif overdue %}table-danger{% endif %}" data-order-id="{{ r.order_id }}">
+        <td class="text-center">
+          <input type="checkbox" class="form-check-input js-row-check" 
+                 data-id="{{ r.id }}" 
+                 value="{{ r.id }}"
+                 data-can-accept="{{ 'true' if can_accept else 'false' }}">
+        </td>
+        <td>{{ r.platform }}</td>
+        <td>{{ r.shop }}</td>
+        <td class="order-cell">{{ r.order_id }}</td>
+        <td>{{ r.sku }}</td>
+        <td>{{ r.brand }}</td>
+        <td>{{ r.model }}</td>
+        <td>{{ r.stock_qty }}</td>
+        <td>{{ r.qty }}</td>
+        <td>{{ r.allqty }}</td>
+        <td class="text-nowrap" data-ordertime="{{ r.order_time_iso }}" data-platform="{{ r.platform }}">{{ r.order_time|thai_be }}</td>
+        <td>{{ r.due_date|be_date }}</td>
+        <td class="sla-cell" data-status="{{ r.allocation_status }}" data-platform="{{ r.platform }}" data-ordertime="{{ r.order_time_iso }}">
+          {% if r.allocation_status != 'PACKED' %}{{ r.sla }}{% endif %}
+        </td>
+        <td>{{ r.logistic or '-' }}</td>
+        <td>
+          {% if r.is_not_in_sbs %}
+            <span class="text-danger fw-bold">Orderยังไม่นำเข้าSBS</span>
+          {% else %}
+            {{ r.sales_status or '-' }}
+          {% endif %}
+        </td>
+        <td>
+          {% if r.is_issued %}
+            <span class="badge bg-info text-dark border border-info">จ่ายแล้ว</span>
+            <div style="font-size: 0.7rem; color: #666;">
+              {% if r.allocation_status == "READY_ACCEPT" %}(พร้อมรับ)
+              {% elif r.allocation_status == "LOW_STOCK" %}(สินค้าน้อย)
+              {% elif r.allocation_status == "SHORTAGE" %}(ไม่มีสินค้า)
+              {% elif r.allocation_status == "NOT_ENOUGH" %}(ไม่พอส่ง)
+              {% endif %}
+            </div>
+          {% elif r.allocation_status == "READY_ACCEPT" %}
+            <span class="badge text-bg-success">แนะนำกดรับ</span>
+          {% elif r.allocation_status == "ACCEPTED" %}
+            <span class="badge text-bg-secondary">รับแล้ว</span>
+          {% elif r.allocation_status == "PACKED" %}
+            <span class="badge text-bg-dark">แพ็คแล้ว</span>
+          {% elif r.allocation_status == "CANCELLED" %}
+            <span class="badge text-bg-secondary">ยกเลิก</span>
+          {% elif r.allocation_status == "LOW_STOCK" %}
+            <span class="badge text-bg-warning">สินค้าน้อย (1–3)</span>
+          {% elif r.allocation_status == "SHORTAGE" %}
+            <span class="badge text-bg-danger">ไม่มีสินค้า</span>
+          {% elif r.allocation_status == "NOT_ENOUGH" %}
+            <span class="badge text-bg-danger">สินค้าไม่พอส่ง</span>
+          {% else %}
+            <span class="badge text-bg-light text-dark">-</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">
+          <div class="d-flex gap-1 flex-wrap">
+          {% if r.is_cancelled %}
+            <span class="text-muted">-</span>
+          {% else %}
+            {% if r.is_issued %}
+              <button class="btn btn-sm btn-secondary" disabled title="Order นี้จ่ายงานแล้ว">จ่ายแล้ว</button>
+            {% elif r.allocation_status in ["READY_ACCEPT","LOW_STOCK","NOT_ENOUGH"] and not r.accepted and r.allocation_status != "CANCELLED" %}
+              <form method="post" action="{{ url_for('dashboard_accept_order') }}" class="d-inline">
+                <input type="hidden" name="order_id" value="{{ r.order_id }}">
+                <input type="hidden" name="sku" value="{{ r.sku }}">
+                <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
+                <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
+                <button class="btn btn-sm {% if r.allocation_status=='LOW_STOCK' %}btn-warning{% elif r.allocation_status=='NOT_ENOUGH' %}btn-danger{% else %}btn-primary{% endif %}">กดรับ</button>
+              </form>
+            {% elif r.allocation_status == "ACCEPTED" %}
+              <form method="post" action="{{ url_for('cancel_accept', order_line_id=r.id) }}" class="d-inline">
+                <button class="btn btn-sm btn-warning text-dark fw-bold" title="ยกเลิกการกดรับ" style="border: 1px solid #d39e00;">
+                    <i class="bi bi-arrow-counterclockwise"></i> ถอยกลับ
+                </button>
+              </form>
+            {% endif %}
+            
+            {# ปุ่มยกเลิก Order ถาวร - แสดงเสมอทุกสถานะ (ยกเว้น PACKED และ CANCELLED) #}
+            {% if r.allocation_status not in ["PACKED"] %}
+              <button class="btn btn-sm btn-outline-danger" 
+                      onclick="openCancelModal('{{ r.order_id }}')"
+                      title="ยกเลิก Order นี้ถาวร">
+                <i class="bi bi-x-circle"></i> ยกเลิก
+              </button>
+            {% endif %}
+          {% endif %}
+          </div>
+        </td>
+        <td>{{ r.accepted_by or '-' }}</td>
+        <td>
+          {# คอลัมน์หมายเหตุ - แสดงเหตุผลยกเลิก + เวลา #}
+          {% if r.is_cancelled %}
+            <div class="d-flex flex-column align-items-start">
+                <span class="text-danger small fw-bold">
+                    <i class="bi bi-info-circle"></i> {{ r.cancel_reason or '-' }}
+                </span>
+                {% if r.cancel_at %}
+                    <span class="text-muted" style="font-size: 0.75rem;">
+                        <i class="bi bi-clock"></i> {{ r.cancel_at }}
+                    </span>
+                {% endif %}
+            </div>
+          {% else %}
+            <span class="text-muted small">-</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="d-none position-fixed top-0 start-0 w-100 h-100 d-flex justify-content-center align-items-center" style="background: rgba(255,255,255,0.8); z-index: 9999; backdrop-filter: blur(2px);">
+    <div class="text-center shadow p-4 rounded bg-white">
+        <div class="spinner-border text-primary mb-2" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="m-0 text-primary">กำลังโหลดข้อมูล...</h5>
+    </div>
+</div>
+
+<script>
+function confirmBulkDeleteOrders() {
+  // [แก้ไข] เปลี่ยน Selector ให้จับจาก class .js-row-check แทน
+  const checked = document.querySelectorAll(".js-row-check:checked");
+  
+  if (!checked.length) {
+    alert("กรุณาเลือกรายการ (ติ๊กถูก) ก่อนลบ");
+    return;
+  }
+  
+  // นับจำนวน Order จริงๆ (ไม่นับบรรทัดซ้ำ) เพื่อแสดงใน confirm message
+  const oids = new Set();
+  checked.forEach(ch => {
+    const tr = ch.closest("tr");
+    if (tr && tr.dataset && tr.dataset.orderId) {
+      oids.add(tr.dataset.orderId);
+    }
+  });
+  
+  const msg = oids.size > 0
+    ? `⚠️ ยืนยันลบออเดอร์ต่อไปนี้ออกจากระบบ?\n- ${Array.from(oids).slice(0,10).join("\n- ")}${oids.size>10?`\n... (+${oids.size-10} รายการ)`:''}\n\n(ข้อมูลจะถูกย้ายไปที่ 'Orderที่ถูกลบ' และสามารถกู้คืนได้)`
+    : "⚠️ ยืนยันลบ Order ของรายการที่เลือกทั้งหมดออกจากระบบ?";
+    
+  if (!confirm(msg)) return;
+
+  // แสดง Loading
+  const loader = document.getElementById('loadingOverlay');
+  if(loader) loader.classList.remove('d-none');
+
+  // สร้าง Hidden Inputs เพื่อส่งค่าเข้า app.py
+  const form = document.getElementById("bulk-delete-form");
+  form.innerHTML = ""; // เคลียร์ค่าเก่า
+  
+  checked.forEach(ch => {
+    const hid = document.createElement("input");
+    hid.type = "hidden";
+    hid.name = "order_line_ids[]"; // ส่งชื่อนี้ Backend ถึงจะรับค่าได้
+    hid.value = ch.value;          // ส่งค่า id ของ OrderLine
+    form.appendChild(hid);
+  });
+  
+  form.submit();
+}
+
+// ฟังก์ชันล้างฟิลเตอร์ตาราง (ถูกเรียกอัตโนมัติเมื่อกดปุ่มล้างฟิลเตอร์ทั้งหมด ซึ่งจะ redirect ไป dashboard หน้าใหม่)
+
+// ========== เริ่มต้นใช้งาน DataTable สำหรับตาราง ==========
+document.addEventListener('DOMContentLoaded', function() {
+  // ตรวจสอบว่ามี jQuery และ DataTable หรือไม่
+  if (typeof $ !== 'undefined' && $.fn.dataTable) {
+    
+    // เริ่มต้นใช้งาน DataTable กับตาราง #ordersTable
+    var table = $('#ordersTable').DataTable({
+      // [แก้จุดที่ 1] เปิด Paging เพื่อลดภาระ Browser
+      "paging": true,          
+      "pageLength": 50,        // แสดงหน้าละ 50 แถว (ค่าเริ่มต้น)
+      "lengthMenu": [[50, 100, 200, -1], [50, 100, 200, "ทั้งหมด"]],
+      
+      "searching": false,     // ปิดช่องค้นหาของ DataTables (เพราะเรามี Global Search ด้านบนแล้ว)
+      "info": true,           // โชว์ว่าดูรายการที่เท่าไหร่ถึงเท่าไหร่
+      "ordering": true,       // เปิดใช้งานการเรียงลำดับ
+      "order": [],            // ค่าเริ่มต้นไม่เรียง (ให้เรียงตาม Database ที่ส่งมา)
+      
+      // เรียง Order ID ก่อนเสมอ เพื่อให้การตีกรอบไม่เพี้ยน
+      "orderFixed": [[3, 'asc']], // 3 คือ index ของคอลัมน์ "เลข Order"
+      
+      "columnDefs": [
+        { "orderable": false, "targets": 0 } // ห้ามเรียงคอลัมน์แรก (Checkbox)
+      ],
+      "language": {
+        "emptyTable": "ไม่พบข้อมูลในตาราง",
+        "info": "แสดง _START_ ถึง _END_ จาก _TOTAL_ รายการ",
+        "infoEmpty": "ไม่พบข้อมูล",
+        "infoFiltered": "(กรองจาก _MAX_ รายการ)",
+        "paginate": {
+          "first": "หน้าแรก",
+          "last": "หน้าสุดท้าย",
+          "next": "ถัดไป",
+          "previous": "ก่อนหน้า"
+        },
+        "lengthMenu": "แสดง _MENU_ รายการ/หน้า"
+      },
+      
+      // วาดเส้นขอบ (จะทำงานเร็วขึ้นเพราะวนลูปแค่ 100 รอบ แทนที่จะเป็นพัน)
+      "drawCallback": function (settings) {
+        var api = this.api();
+        var rows = api.rows({page:'current'}).nodes();
+        var last = null;
+        
+        // ลบ Class เดิมที่อาจมีอยู่
+        $(rows).removeClass('order-group-start order-group-end');
+ 
+        // วนลูปทุกแถวเพื่อเช็ค Order ID
+        api.column(3, {page:'current'}).data().each(function (group, i) {
+          // ดึงเลข Order (อาจต้อง strip html tags ถ้ามี)
+          var orderId = typeof group === 'string' ? group.replace(/<[^>]*>/g, '').trim() : group;
+          
+          if (last !== orderId) {
+            // เจอ Order ใหม่ -> ขีดเส้นบนหนาๆ ให้แถวนี้
+            $(rows).eq(i).addClass('order-group-start');
+            
+            // ถ้ามีแถวก่อนหน้า ให้ขีดเส้นล่างให้แถวก่อนหน้า
+            if (i > 0) {
+              $(rows).eq(i - 1).addClass('order-group-end');
+            }
+            
+            last = orderId;
+          }
+        });
+        
+        // ขีดเส้นล่างให้แถวสุดท้ายของตาราง
+        if (rows.length > 0) {
+           $(rows).last().addClass('order-group-end');
+        }
+      }
+    });
+
+  } else {
+    console.warn("jQuery หรือ DataTables ยังไม่ถูกโหลด กรุณาเช็ค base.html");
+  }
+});
+
+// ========== สคริปต์สำหรับจัดการปุ่ม KPI Filter (เพิ่ม Loading) ==========
+document.addEventListener('DOMContentLoaded', function() {
+  const kpiButtons = document.querySelectorAll('.kpi-filter');
+  const filterForm = document.getElementById('filterForm');
+  const statusSelect = filterForm ? filterForm.querySelector('select[name="status"]') : null;
+  const loadingOverlay = document.getElementById('loadingOverlay');
+
+  // ฟังก์ชันโชว์ Loading
+  function showLoading() {
+    if (loadingOverlay) loadingOverlay.classList.remove('d-none');
+  }
+
+  // 1. กดปุ่ม KPI
+  kpiButtons.forEach(btn => {
+    btn.addEventListener('click', function() {
+      showLoading(); // โชว์ทันทีที่กด
+      
+      // รอ browser render loading แป๊บนึงค่อย submit
+      setTimeout(() => {
+        const status = this.getAttribute('data-status');
+        if (statusSelect) {
+          statusSelect.value = status;
+          filterForm.submit();
+        }
+      }, 10);
+    });
+  });
+  
+  // 2. กดปุ่ม "กรอง" ปกติ
+  const btnFilter = document.getElementById('btn-filter');
+  if (btnFilter) {
+    btnFilter.addEventListener('click', function() {
+      showLoading();
+    });
+  }
+  
+  // 3. กด Export Excel
+  const btnExport = document.getElementById('btn-export');
+  if (btnExport) {
+    btnExport.addEventListener('click', function(e) {
+      if(!confirm('ยืนยันการ Export ข้อมูลเป็น Excel?')) {
+        e.preventDefault();
+        return;
+      }
+      showLoading();
+      // ซ่อน Loading หลัง 5 วินาที (กรณี Export เสร็จหรือเร็ว)
+      setTimeout(() => {
+        if (loadingOverlay) loadingOverlay.classList.add('d-none');
+      }, 5000);
+    });
+  }
+});
+
+// ========== ดักจับ Form Submit สำหรับปุ่มรายแถว (กดรับ / ถอยกลับ) ==========
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    
+    // ถ้าเป็นปุ่ม "กดรับ" (dashboard_accept_order)
+    if (form.action && form.action.includes('dashboard/accept_order')) {
+        if (!confirm('ยืนยัน "กดรับ" รายการนี้?')) {
+            e.preventDefault();
+            return false;
+        }
+    }
+    
+    // ถ้าเป็นปุ่ม "ถอยกลับ" (cancel_accept)
+    if (form.action && form.action.includes('cancel_accept')) {
+        if (!confirm('⚠️ ยืนยันการ "ถอยกลับ" (ยกเลิกสถานะรับแล้ว)?')) {
+            e.preventDefault();
+            return false;
+        }
+    }
+});
+
+// ========== ฟังก์ชั่นเปิด Modal ยกเลิก Order ==========
+function openCancelModal(orderId) {
+    document.getElementById('modalOrderIdDisplay').innerText = orderId;
+    document.getElementById('inputOrderIdForCancel').value = orderId;
+    document.getElementById('cancelReasonInput').value = ''; // ล้างช่องเหตุผล
+    
+    var myModal = new bootstrap.Modal(document.getElementById('cancelOrderModal'));
+    myModal.show();
+}
+
+// ตรวจสอบว่ากรอกเหตุผลก่อน submit
+document.addEventListener('DOMContentLoaded', function() {
+    var cancelForm = document.getElementById('cancelOrderForm');
+    if (cancelForm) {
+        cancelForm.addEventListener('submit', function(e) {
+            var reason = document.getElementById('cancelReasonInput').value.trim();
+            if (!reason) {
+                e.preventDefault();
+                alert('กรุณาระบุเหตุผลการยกเลิก');
+                return false;
+            }
+            // [แก้ไข] เพิ่ม confirm อีกชั้นก่อนส่ง
+            if (!confirm('⚠️ คุณแน่ใจหรือไม่ที่จะ "ยกเลิก Order" นี้ถาวร?')) {
+                e.preventDefault();
+                return false;
+            }
+            // โชว์ Loading เมื่อ submit
+            var loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) loadingOverlay.classList.remove('d-none');
+            return true;
+        });
+    }
+});
+
+// ========== จัดการ Checkbox และ ปุ่ม Bulk Actions ==========
+document.addEventListener('DOMContentLoaded', function() {
+    const checkAll = document.getElementById('check-all');
+    const bulkBar = document.getElementById('bulk-bar');
+    const selectedCountSpan = document.getElementById('selected-count');
+    const btnBulkClear = document.getElementById('btn-bulk-clear');
+    
+    // ฟังก์ชันอัปเดตแถบเมนูเมื่อติ๊กเลือก
+    function updateBulkBar() {
+        const checked = document.querySelectorAll('.js-row-check:checked');
+        const count = checked.length;
+        if (selectedCountSpan) selectedCountSpan.innerText = count;
+        
+        if (count > 0) {
+            bulkBar.classList.remove('d-none');
+        } else {
+            bulkBar.classList.add('d-none');
+            if (checkAll) checkAll.checked = false;
+        }
+    }
+
+    // Event: เลือกทั้งหมด
+    if (checkAll) {
+        checkAll.addEventListener('change', function() {
+            const isChecked = this.checked;
+            document.querySelectorAll('.js-row-check').forEach(chk => {
+                chk.checked = isChecked;
+            });
+            updateBulkBar();
+        });
+    }
+
+    // Event: เลือกรายแถว
+    const tbody = document.querySelector('tbody');
+    if (tbody) {
+        tbody.addEventListener('change', function(e) {
+            if (e.target.classList.contains('js-row-check')) {
+                updateBulkBar();
+                if (!e.target.checked && checkAll) checkAll.checked = false;
+            }
+        });
+    }
+
+    // Event: ล้างการเลือก
+    if (btnBulkClear) {
+        btnBulkClear.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelectorAll('.js-row-check').forEach(chk => chk.checked = false);
+            updateBulkBar();
+        });
+    }
+
+    // ฟังก์ชันช่วยส่งข้อมูล (Submit)
+    function submitBulkForm(actionUrl) {
+        const checked = document.querySelectorAll('.js-row-check:checked');
+        if (checked.length === 0) return;
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = actionUrl;
+
+        checked.forEach(chk => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'order_line_ids[]';
+            input.value = chk.value;
+            form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        
+        // โชว์ Loading
+        const loader = document.getElementById('loadingOverlay');
+        if(loader) loader.classList.remove('d-none');
+        
+        form.submit();
+    }
+
+    // --- แก้ไขจุดสำคัญ: ปุ่มกดรับที่เลือก (Logic ใหม่: กรองรายการที่รับไม่ได้ออก) ---
+    const btnBulkAccept = document.getElementById('btn-bulk-accept-confirm');
+    if (btnBulkAccept) {
+        const newBtn = btnBulkAccept.cloneNode(true);
+        btnBulkAccept.parentNode.replaceChild(newBtn, btnBulkAccept);
+
+        newBtn.addEventListener('click', function(e) {
+            e.preventDefault(); 
+            e.stopPropagation();
+
+            const checked = document.querySelectorAll('.js-row-check:checked');
+            
+            // [Logic ใหม่] แยกนับรายการที่รับได้ และ รับไม่ได้
+            let validCount = 0;
+            let invalidCount = 0;
+            const validIds = []; // เก็บ ID เพื่อเอาไป submit เฉพาะตัวที่ถูกต้อง (Option)
+
+            checked.forEach(chk => {
+                if (chk.getAttribute('data-can-accept') === 'true') {
+                    validCount++;
+                    validIds.push(chk);
+                } else {
+                    invalidCount++;
+                }
+            });
+
+            // กรณีที่ 1: ไม่ได้เลือกเลย หรือ เลือกแต่ตัวที่รับไม่ได้ทั้งหมด
+            if (validCount === 0) {
+                if (invalidCount > 0) {
+                    alert(`❌ รายการที่เลือก ${invalidCount} รายการ ไม่สามารถกดรับได้\n(เนื่องจากเป็น Order ยกเลิก, แพ็คแล้ว, จ่ายงานแล้ว หรือไม่มีสต็อก)`);
+                } else {
+                    alert("❌ กรุณาเลือกรายการที่ต้องการกดรับก่อน");
+                }
+                return;
+            }
+
+            // กรณีที่ 2: มีรายการคละกัน (ทั้งได้และไม่ได้) หรือ ได้ทั้งหมด
+            let msg = `⚠️ ยืนยันการ "กดรับ" จำนวน ${validCount} รายการที่พร้อมรับหรือไม่?`;
+            
+            if (invalidCount > 0) {
+                msg += `\n\n(ระบบจะข้าม ${invalidCount} รายการที่เลือกมา เนื่องจากสถานะไม่ถูกต้อง)`;
+            }
+
+            const isConfirmed = confirm(msg);
+
+            if (isConfirmed) {
+                // เทคนิคเสริม: ถ้าอยากให้ส่งไปเฉพาะตัว valid ให้ทำ logic filter ตรงนี้เพิ่ม 
+                // แต่ถ้าใช้ submitBulkForm แบบเดิม Backend ก็จะกรอง error ให้เองอยู่แล้ว ซึ่งปลอดภัยครับ
+                submitBulkForm("{{ url_for('bulk_accept') }}");
+            } else {
+                console.log("User cancelled bulk accept.");
+                return false;
+            }
+        });
+    }
+
+    // ปุ่มยกเลิกที่เลือก
+    const btnBulkCancel = document.getElementById('btn-bulk-cancel');
+    if (btnBulkCancel) {
+        const newBtnCancel = btnBulkCancel.cloneNode(true);
+        btnBulkCancel.parentNode.replaceChild(newBtnCancel, btnBulkCancel);
+
+        newBtnCancel.addEventListener('click', function(e) {
+            e.preventDefault();
+            const count = document.querySelectorAll('.js-row-check:checked').length;
+            if (count === 0) return;
+
+            if (confirm(`⚠️ ยืนยันการ "ยกเลิกสถานะรับ" จำนวน ${count} รายการที่เลือกหรือไม่?\n(สถานะจะกลับไปเป็นปกติ)`)) {
+                submitBulkForm("{{ url_for('bulk_cancel') }}");
+            }
+        });
+    }
+});
+</script>
+
+<!-- ========== Modal สำหรับยกเลิก Order ========== -->
+<div class="modal fade" id="cancelOrderModal" tabindex="-1" aria-labelledby="cancelOrderModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="cancelOrderModalLabel">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i> ยืนยันการยกเลิก Order
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{{ url_for('cancel_order_permanent') }}" id="cancelOrderForm">
+        <div class="modal-body">
+          <div class="alert alert-warning border-0 bg-light">
+            <i class="bi bi-info-circle me-1"></i>
+            คุณกำลังจะยกเลิก Order: <strong id="modalOrderIdDisplay" class="text-primary"></strong>
+          </div>
+          <p class="small text-muted mb-3">
+            เมื่อกดยกเลิกแล้ว รายการนี้จะถือว่าสิ้นสุดและถูกย้ายไปสถานะ "ยกเลิก"
+          </p>
+          
+          <input type="hidden" name="order_id" id="inputOrderIdForCancel">
+          
+          {# ส่ง query params กลับไปเพื่อรักษาหน้าปัจจุบัน #}
+          {% for key, val in request.args.items() %}
+            <input type="hidden" name="{{ key }}" value="{{ val }}">
+          {% endfor %}
+          
+          <div class="mb-3">
+            <label for="cancelReasonInput" class="form-label fw-bold text-danger">
+              <i class="bi bi-chat-left-text me-1"></i> ระบุสาเหตุการยกเลิก <span class="text-danger">*</span>
+            </label>
+            <textarea name="reason" id="cancelReasonInput" class="form-control" rows="3" 
+                      placeholder="เช่น ลูกค้ายกเลิก, สินค้าหมดถาวร, สั่งผิด, ปัญหาการชำระเงิน" 
+                      required></textarea>
+            <div class="form-text text-muted">
+              <i class="bi bi-lightbulb me-1"></i> เหตุผลจะแสดงในคอลัมน์ "หมายเหตุ" ของตาราง
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer bg-light">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            <i class="bi bi-x-lg me-1"></i> ปิด
+          </button>
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i> ยืนยันยกเลิก Order
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="scroll-nav-container">
+  <button type="button" class="btn btn-secondary btn-lg rounded-circle shadow-lg mb-2" id="btn-scroll-to-bottom" title="เลื่อนไปข้างล่าง">
+    <i class="bi bi-arrow-down fw-bold"></i>
+  </button>
+  
+  <button type="button" class="btn btn-primary btn-lg rounded-circle shadow-lg" id="btn-back-to-top" title="เลื่อนไปข้างบน">
+    <i class="bi bi-arrow-up fw-bold"></i>
+  </button>
+</div>
+
+<style>
+  .scroll-nav-container {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column; /* เรียงแนวตั้ง */
+    gap: 10px; /* ระยะห่างระหว่างปุ่ม */
+  }
+
+  .scroll-nav-container button {
+    width: 50px;
+    height: 50px;
+    padding: 0;
+    font-size: 1.5rem;
+    transition: all 0.3s ease;
+    opacity: 0.7;
+    border: none;
+    display: none; /* ซ่อนก่อน เดี๋ยว JS จะคำนวณให้โชว์ */
+  }
+  
+  /* สีและเอฟเฟกต์ปุ่มขึ้น */
+  #btn-back-to-top { background-color: #0b5ed7; color: white; }
+  #btn-back-to-top:hover { opacity: 1; transform: translateY(-3px); box-shadow: 0 5px 15px rgba(11, 94, 215, 0.4) !important; }
+
+  /* สีและเอฟเฟกต์ปุ่มลง */
+  #btn-scroll-to-bottom { background-color: #6c757d; color: white; }
+  #btn-scroll-to-bottom:hover { opacity: 1; transform: translateY(3px); box-shadow: 0 5px 15px rgba(108, 117, 125, 0.4) !important; }
+</style>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const btnUp = document.getElementById("btn-back-to-top");
+    const btnDown = document.getElementById("btn-scroll-to-bottom");
+
+    // ฟังก์ชันเช็คตำแหน่งเพื่อโชว์/ซ่อนปุ่ม
+    function checkScroll() {
+      const scrollPos = window.scrollY || document.documentElement.scrollTop;
+      const winHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
+
+      // 1. ปุ่มขึ้น: โชว์เมื่อเลื่อนลงมาเกิน 300px
+      if (scrollPos > 300) {
+        btnUp.style.display = "block";
+      } else {
+        btnUp.style.display = "none";
+      }
+
+      // 2. ปุ่มลง: โชว์เมื่อยังไม่ถึงข้างล่างสุด (เหลือที่ให้เลื่อนอีก 300px)
+      if (scrollPos + winHeight < docHeight - 300) {
+        btnDown.style.display = "block";
+      } else {
+        btnDown.style.display = "none";
+      }
+    }
+
+    // ทำงานเมื่อเลื่อนหน้าจอ
+    window.addEventListener("scroll", checkScroll);
+    // ทำงานทันทีตอนโหลด (เผื่อหน้าจอยาว)
+    checkScroll();
+
+    // --- Action ปุ่มขึ้น ---
+    btnUp.addEventListener("click", function() {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    // --- Action ปุ่มลง ---
+    btnDown.addEventListener("click", function() {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    });
+  });
+</script>
+
+{% endblock %}

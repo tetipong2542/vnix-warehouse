@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <title>รายงานสินค้าน้อย (Low Stock)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+
+  <style>
+    :root { --primary-color: #0d6efd; --bg-color: #f4f6f9; }
+    body { font-family: 'Sarabun', 'Noto Sans Thai', Tahoma, sans-serif; background-color: var(--bg-color); font-size: 14px; }
+    
+    /* Card Styles */
+    .card-kpi { border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); transition: transform 0.2s; }
+    .card-kpi:hover { transform: translateY(-2px); }
+    .kpi-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+    
+    /* Table Styles */
+    #reportTable { font-size: 13px; }
+    #reportTable thead th { background-color: #fff; border-bottom: 2px solid #e9ecef; color: #495057; font-weight: 600; white-space: nowrap; }
+    #reportTable tbody tr { transition: background 0.1s; }
+    #reportTable tbody tr:hover { background-color: #f1f8ff !important; }
+    #reportTable tbody tr.ok { background-color: #f2fff2 !important; }
+    #reportTable tbody tr.warn { background-color: #fff6f6 !important; }
+    /* ปรับเส้นแบ่ง Order ให้ดูสะอาดตา (Clean Style) */
+    #reportTable tbody tr.group-start td { border-top: 2px solid #adb5bd !important; }
+    #reportTable tbody tr.group-end td { border-bottom: 1px solid #dee2e6 !important; }
+    
+    /* Scanner */
+    .global-scanner { background: white; border-radius: 50px; padding: 5px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border: 2px solid var(--primary-color); display: flex; align-items: center; width: 100%; max-width: 600px; margin: 0 auto; }
+    .global-scanner input { border: none; outline: none; width: 100%; font-size: 1.1rem; font-weight: bold; color: var(--primary-color); text-transform: uppercase; margin-left: 10px; }
+    
+    /* Status Colors */
+    .bg-soft-primary { background-color: rgba(13, 110, 253, 0.1); color: #0d6efd; }
+    .bg-soft-warning { background-color: rgba(255, 193, 7, 0.1); color: #856404; }
+    .bg-soft-danger { background-color: rgba(220, 53, 69, 0.1); color: #dc3545; }
+    .bg-soft-success { background-color: rgba(25, 135, 84, 0.1); color: #198754; }
+    
+    .sla-overdue { color: #b00020; font-weight: 600; }
+
+    /* Print Styles */
+    @media print {
+      @page { size: A4 landscape; margin: 5mm; }
+      body { background: white; font-size: 10px; padding: 0 !important; }
+      .no-print, .dataTables_length, .dataTables_filter, .dataTables_info, .dataTables_paginate, .global-scanner { display: none !important; }
+      .card { border: none !important; box-shadow: none !important; }
+      .card-body { padding: 0 !important; }
+      table { width: 100% !important; border-collapse: collapse !important; }
+      th, td { border: 1px solid #333 !important; padding: 4px !important; white-space: normal !important; overflow-wrap: anywhere; font-size: 10px !important; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
+      
+      /* Show Checkbox for Scan in Print */
+      .scan-input { display: none !important; }
+      .scan-print-box { display: block !important; width: 15px; height: 15px; border: 1px solid #000; margin: 0 auto; text-align: center; line-height: 14px; font-weight: bold; }
+      .scan-print-box.checked { background: #000; color: #fff; }
+      
+      /* Signature boxes */
+      .signbox { display: flex !important; gap: 20px; margin-top: 20px; }
+      .sign { flex: 1; border: 1px dashed #333; padding: 10px; min-height: 60px; }
+    }
+    
+    .scan-print-box { display: none; } /* Hide on screen */
+    
+    /* Signature box styles */
+    .signbox { margin-top: 20px; display: none; }
+    @media print { .signbox { display: flex !important; } }
+  </style>
+</head>
+<body class="p-3">
+
+  <!-- Print Header (แสดงเฉพาะตอนพิมพ์) -->
+  <div class="d-none d-print-block mb-3">
+    <div class="text-center">
+      <h2 class="fw-bold m-0">รายงานสินค้าน้อย (Low Stock)</h2>
+      <p class="text-muted small m-0">รายการสินค้าที่ต้องตรวจสอบ Stock น้อยกว่า Qty ที่สั่ง</p>
+    </div>
+    <div class="d-flex justify-content-between align-items-end mt-3 border-bottom pb-2">
+      <small><b>ผู้พิมพ์:</b> {{ CURRENT_USER.username if CURRENT_USER else 'N/A' }}</small>
+      <small><b>พิมพ์เมื่อ:</b> <span class="print-date-now"></span></small>
+    </div>
+  </div>
+
+  {% set csv_oids = (order_ids|join(",")) if order_ids is defined else "" %}
+
+  <!-- Header Section -->
+  <div class="d-flex justify-content-between align-items-center mb-4 no-print flex-wrap gap-2">
+    <div>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm mb-2"><i class="bi bi-arrow-left"></i> กลับหน้าหลัก</a>
+      <h3 class="fw-bold mb-0">
+        <i class="bi bi-file-earmark-bar-graph-fill text-primary me-2"></i>
+        รายงานสินค้าน้อย (Low Stock) 
+        {% if is_history_view %}<span class="badge bg-secondary fs-6 align-middle ms-2">ประวัติ</span>{% endif %}
+      </h3>
+      <div class="text-muted small mt-1">รายการสินค้าที่ต้องตรวจสอบ Stock น้อยกว่า Qty ที่สั่ง</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      {% if is_history_view %}
+        <a href="{{ url_for('report_lowstock') }}" class="btn btn-outline-primary">
+          <i class="bi bi-file-earmark"></i> ดูรายการปัจจุบัน
+        </a>
+      {% endif %}
+      
+      <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> พิมพ์หน้านี้</button>
+      
+      <form method="post" action="{{ url_for('report_lowstock_print') }}" style="display:inline;" onsubmit="return confirm('ยืนยันบันทึกประวัติการพิมพ์?')">
+        <input type="hidden" name="order_ids" value="{{ csv_oids }}">
+        <button class="btn btn-success text-white" type="submit"><i class="bi bi-save"></i> พิมพ์ (บันทึกประวัติ)</button>
+      </form>
+      
+      <div class="btn-group">
+        <button type="button" class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-file-earmark-excel"></i> Excel
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <a class="dropdown-item" href="{{ url_for('report_lowstock_export', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel, q=q, sort=sort_col, dir=sort_dir, round=round_sel, date_from=date_from, date_to=date_to, import_from=import_from, import_to=import_to) }}">
+              <i class="bi bi-filter"></i> ตามตัวกรองหน้าจอ ({{ summary.orders_count if summary else 0 }} Order)
+            </a>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <a class="dropdown-item" href="{{ url_for('report_lowstock_export') }}">
+              <i class="bi bi-database"></i> ข้อมูลทั้งหมด (ไม่สนตัวกรอง)
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <div class="dropdown">
+        <button class="btn btn-outline-dark dropdown-toggle" type="button" data-bs-toggle="dropdown">
+          <i class="bi bi-clock-history"></i> ประวัติ
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{{ url_for('report_lowstock_printed') }}">ดูทั้งหมด</a></li>
+          {% if available_dates %}
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">เลือกวันที่</h6></li>
+            {% for d in available_dates %}
+              <li><a class="dropdown-item" href="{{ url_for('report_lowstock_printed', print_date=d) }}">{{ d }}</a></li>
+            {% endfor %}
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Cards + Scanner -->
+  <div class="row g-3 mb-4 no-print align-items-stretch">
+    <div class="col-md-3 col-6">
+      <div class="card card-kpi h-100">
+        <div class="card-body d-flex align-items-center p-3">
+          <div class="kpi-icon bg-soft-primary me-3"><i class="bi bi-box-seam"></i></div>
+          <div>
+            <div class="text-muted small text-uppercase fw-bold">จำนวน Order</div>
+            <h4 class="mb-0 fw-bold">{{ summary.orders_count if summary is defined else 0 }}</h4>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3 col-6">
+      <div class="card card-kpi h-100">
+        <div class="card-body d-flex align-items-center p-3">
+          <div class="kpi-icon bg-soft-warning me-3"><i class="bi bi-exclamation-triangle"></i></div>
+          <div>
+            <div class="text-muted small text-uppercase fw-bold">SKU ที่มีปัญหา</div>
+            <h4 class="mb-0 fw-bold">{{ summary.sku_count if summary is defined else 0 }}</h4>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-2 col-6">
+      <div class="card card-kpi h-100 border-success">
+        <div class="card-body d-flex flex-column align-items-center justify-content-center p-2">
+          <h6 class="text-success text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">✅ Scan แล้ว</h6>
+          <h2 class="fw-bold text-success mb-0" id="dash-scanned">0</h2>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-4 col-12">
+      <div class="d-print-none mx-auto w-100">
+        <div class="input-group shadow-sm mb-1">
+          <span class="input-group-text bg-primary text-white border-primary px-3">
+            <i class="bi bi-upc-scan" style="font-size: 18px;"></i>
+          </span>
+          <input type="text" id="globalScanInput" class="form-control fw-bold text-primary" 
+                 placeholder="ยิงบาร์โค้ด..." autocomplete="off" autofocus style="height: 45px;">
+        </div>
+        <div id="globalScanStatusContainer">
+          <div id="globalScanStatus" class="alert alert-secondary text-center shadow-sm border py-1 mb-0" role="alert" 
+               style="min-height: 40px; display: flex; align-items: center; justify-content: center;">
+            <span class="text-muted small"><i class="bi bi-circle-fill text-success" style="font-size: 8px;"></i> พร้อมใช้งาน</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Card -->
+  <div class="card shadow-sm mb-4 border-0 no-print">
+    <div class="card-body bg-white rounded">
+      <form id="filterForm" method="get" action="{{ url_for('report_lowstock') if not is_history_view else url_for('report_lowstock_printed') }}" class="row g-2 align-items-end">
+        <input type="hidden" name="action" value="filter">
+        
+        <div class="col-md-2 col-6">
+          <label class="form-label small fw-bold">แพลตฟอร์ม</label>
+          <select name="platform" class="form-select form-select-sm">
+            <option value="">ทั้งหมด</option>
+            {% for p in ["shopee","lazada","tiktok"] %}
+              <option value="{{p}}" {% if platform_sel and platform_sel|lower == p|lower %}selected{% endif %}>{{p|capitalize}}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 col-6">
+          <label class="form-label small fw-bold">ร้านค้า</label>
+          <select name="shop_id" class="form-select form-select-sm">
+            <option value="">ทั้งหมด</option>
+            {% for s in shops or [] %}
+              <option value="{{s.id}}" {% if shop_sel and s.id==shop_sel|int %}selected{% endif %}>{{s.platform}} • {{s.name}}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 col-6">
+          <label class="form-label small fw-bold">ขนส่ง</label>
+          <select name="logistic" class="form-select form-select-sm">
+            <option value="">ทั้งหมด</option>
+            {% for lg in logistics or [] %}
+              <option value="{{ lg }}" {% if logistic_sel==lg %}selected{% endif %}>{{ lg }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-1 col-6">
+          <label class="form-label small fw-bold">รอบที่</label>
+          <select name="round" class="form-select form-select-sm">
+            <option value="all">ทั้งหมด</option>
+            {% for r in range(1,11) %}
+              <option value="{{r}}" {% if round_sel|string==r|string %}selected{% endif %}>{{r}}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 col-12">
+          <label class="form-label small fw-bold">ค้นหา</label>
+          <input type="text" name="q" class="form-control form-control-sm" value="{{ q or '' }}" placeholder="Order, SKU...">
+        </div>
+        
+        <div class="col-md-3 col-12 d-flex gap-2">
+          <button class="btn btn-primary btn-sm px-3 fw-bold"><i class="bi bi-search"></i> กรอง</button>
+          
+          {% if is_history_view %}
+            <a href="{{ url_for('report_lowstock_printed', reset='all') }}" class="btn btn-warning btn-sm fw-bold text-dark flex-fill">
+              <i class="bi bi-arrow-clockwise"></i> รีเฟรช (ทั้งหมด)
+            </a>
+          {% else %}
+            <a href="{{ url_for('report_lowstock') }}" class="btn btn-warning btn-sm fw-bold text-dark flex-fill">
+              <i class="bi bi-arrow-clockwise"></i> รีเฟรช / Orderค้าง
+            </a>
+          {% endif %}
+        </div>
+        
+        <div class="col-12 mt-2 pt-2 border-top">
+          <div class="row g-2 align-items-end">
+            {% if is_history_view %}
+            <div class="col-auto">
+              <label class="form-label small fw-bold text-primary">วันที่พิมพ์:</label>
+              <div class="d-flex gap-1 align-items-center">
+                <input type="date" id="print_date_from" name="print_date_from" value="{{ print_date_from or '' }}" class="form-control form-control-sm" style="width:130px;">
+                <span>-</span>
+                <input type="date" id="print_date_to" name="print_date_to" value="{{ print_date_to or '' }}" class="form-control form-control-sm" style="width:130px;">
+              </div>
+            </div>
+            {% endif %}
+            <div class="col-auto">
+              <label class="form-label small fw-bold">วันที่สั่งซื้อ:</label>
+              <div class="d-flex gap-1 align-items-center">
+                <input type="date" id="date_from" name="date_from" value="{{ date_from or '' }}" class="form-control form-control-sm" style="width:130px;">
+                <span>-</span>
+                <input type="date" id="date_to" name="date_to" value="{{ date_to or '' }}" class="form-control form-control-sm" style="width:130px;">
+              </div>
+            </div>
+            <div class="col-auto">
+              <label class="form-label small fw-bold">วันที่นำเข้า:</label>
+              <div class="d-flex gap-1 align-items-center">
+                <input type="date" id="import_from" name="import_from" value="{{ import_from or '' }}" class="form-control form-control-sm" style="width:130px;">
+                <span>-</span>
+                <input type="date" id="import_to" name="import_to" value="{{ import_to or '' }}" class="form-control form-control-sm" style="width:130px;">
+              </div>
+            </div>
+
+            <div class="col-auto ms-auto">
+              <button type="button" class="btn btn-outline-primary btn-sm px-4 fw-bold" onclick="setAllToday()">
+                <i class="bi bi-calendar-event"></i> วันนี้
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  function setAllToday() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${dd}`;
+
+    ['print_date_from', 'print_date_to', 'date_from', 'date_to', 'import_from', 'import_to'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = today;
+    });
+
+    document.getElementById('filterForm').submit();
+  }
+  </script>
+
+  <!-- Update Round (if not history view) -->
+  {% if not is_history_view and order_ids and order_ids|length>0 %}
+  <div class="card shadow-sm mb-3 border-0 no-print">
+    <div class="card-body bg-light rounded d-flex align-items-center gap-3 flex-wrap">
+      <label class="fw-bold mb-0">อัปเดตจ่ายงาน(รอบที่):</label>
+      <input id="round-input" type="number" min="1" step="1" class="form-control form-control-sm" style="width:80px;">
+      <button class="btn btn-success btn-sm" type="button" onclick="updateRound()">
+        <i class="bi bi-check-circle"></i> บันทึกรอบให้ทุกออเดอร์ในรายงานนี้
+      </button>
+      <span class="text-muted small">จะอัปเดตเฉพาะคอลัมน์ <b>lowstock_round</b></span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Data Table Card -->
+  <div class="card shadow-sm border-0">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table id="reportTable" class="table table-hover align-middle mb-0 w-100">
+          <thead class="table-light">
+            <tr>
+              <th class="text-center no-print" style="width: 40px;">
+                <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+              </th>
+              <th>แพลตฟอร์ม</th>
+              <th>ร้าน</th>
+              <th>เลข Order</th>
+              <th>SKU</th>
+              <th>Brand</th>
+              <th>ชื่อสินค้า</th>
+              <th class="text-end">Stock</th>
+              <th class="text-end">Qty</th>
+              <th class="text-end">AllQty</th>
+              <th>เวลาสั่ง</th>
+              <th>กำหนดส่ง</th>
+              <th class="text-end">SLA</th>
+              <th>ขนส่ง</th>
+              <th class="text-center">รอบ</th>
+              <th class="text-center">พิมพ์</th>
+              <th>วันที่พิมพ์</th>
+              <th>หมายเหตุ</th>
+              <th class="text-center" style="width:80px;">Scan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set prev_order = namespace(val=None) %}
+            {% for r in rows %}
+              {% set is_start = (prev_order.val != r.order_no) %}
+              {% if not loop.last %}{% set next_order = rows[loop.index0 + 1].order_no %}{% else %}{% set next_order = None %}{% endif %}
+              {% set is_end = (next_order != r.order_no) %}
+              {% set ok = (r.stock is not none and r.allqty is not none and (r.stock|int) >= (r.allqty|int)) %}
+            <tr class="{% if is_start %}group-start{% endif %} {% if is_end %}group-end{% endif %} {% if ok %}ok{% else %}warn{% endif %}" data-order-no="{{ r.order_no }}">
+              <td class="text-center no-print">
+                <input type="checkbox" class="order-checkbox" value="{{ r.order_no }}" onchange="updateSelectedCount()">
+              </td>
+              <td><span class="badge bg-light text-dark border">{{ r.platform }}</span></td>
+              <td><small>{{ r.store }}</small></td>
+              <td class="fw-bold text-primary">{{ r.order_no }}</td>
+              <td><small>{{ r.sku }}</small></td>
+              <td><small>{{ r.brand }}</small></td>
+              <td style="max-width: 200px;"><small class="text-wrap">{{ r.product_name }}</small></td>
+              <td class="text-end">{{ r.stock }}</td>
+              <td class="text-end fw-bold">{{ r.qty }}</td>
+              <td class="text-end">{{ r.allqty }}</td>
+              <td><small>{{ r.order_time }}</small></td>
+              <td><small>{{ r.due_date }}</small></td>
+              <td class="text-end {% if r.sla and ('เลยกำหนด' in (r.sla|string)) %}sla-overdue{% endif %}"><small>{{ r.sla }}</small></td>
+              <td><small>{{ r.shipping_type }}</small></td>
+              <td class="text-center">{{ r.assign_round if r.assign_round is not none else '-' }}</td>
+              <td class="text-center">{{ r.printed_count or 0 }}</td>
+              <td><small>{{ r.printed_at.strftime('%d/%m/%Y %H:%M') if r.printed_at else '' }}</small></td>
+              <td class="text-danger"><small>{% if r.note %}⚠️ {{ r.note }}{% endif %}</small></td>
+              
+              <td class="text-center p-1 scan-cell">
+                <input type="text" class="form-control form-control-sm text-center fw-bold scan-input" 
+                       value="{{ '✓' if r.scanned_at else '' }}"
+                       data-expected="{{ r.order_no }}" 
+                       data-scanned="{{ 'true' if r.scanned_at else 'false' }}"
+                       readonly tabindex="-1" 
+                       style="background-color: {{ '#d4edda' if r.scanned_at else '#fff' }}; cursor: default; width: 50px;">
+                <div class="scan-print-box {{ 'checked' if r.scanned_at else '' }}">{{ '✓' if r.scanned_at else '' }}</div>
+              </td>
+            </tr>
+              {% set prev_order.val = r.order_no %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signature Boxes (Print Only) -->
+  <div class="signbox">
+    <div class="sign">
+      <b>ลายเซ็นผู้จ่ายงาน</b><br>
+      วันที่/เวลา: _________________________________
+    </div>
+    <div class="sign">
+      <b>ลายเซ็นผู้รับงาน</b><br>
+      วันที่/เวลา: _________________________________
+    </div>
+  </div>
+
+  <!-- History Notice -->
+  {% if is_history_view %}
+  <div class="alert alert-info mt-3 no-print">
+    <i class="bi bi-info-circle me-2"></i>
+    กำลังดูประวัติการพิมพ์รายงานสินค้าน้อย
+    {% if printed_at %}
+    <span class="ms-2">| บันทึกล่าสุด: <b>{{ printed_at.strftime('%d/%m/%Y %H:%M:%S') }}</b></span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // ========== Global Shared Variables ==========
+    let table; 
+    let scanStatusTimer = null;
+
+    $(document).ready(function() {
+      // [Print Header] วันที่พิมพ์
+      const d = new Date();
+      $('.print-date-now').text(d.toLocaleDateString('th-TH') + ' ' + d.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}));
+
+      // 1. Initialize DataTables
+      if ($('#reportTable').length) {
+        table = $('#reportTable').DataTable({
+          "pageLength": 50,
+          "lengthMenu": [[50, 100, 200, -1], [50, 100, 200, "ทั้งหมด"]],
+          "ordering": false,
+          "info": true,
+          "searching": true,
+          "dom": "<'row mb-3'<'col-sm-6'l><'col-sm-6 text-end'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+          "language": {
+            "lengthMenu": "แสดง _MENU_ รายการ",
+            "zeroRecords": "ไม่พบข้อมูล",
+            "info": "หน้า _PAGE_ จาก _PAGES_ (รวม _TOTAL_ รายการ)",
+            "infoEmpty": "ไม่มีข้อมูล",
+            "infoFiltered": "(กรองจากทั้งหมด _MAX_ รายการ)",
+            "search": "ค้นหาในตาราง:",
+            "paginate": { "next": "ถัดไป »", "previous": "« ก่อนหน้า" }
+          }
+        });
+      }
+
+      // เรียก updateScanStats ครั้งแรก และ bind DataTables draw event
+      if(table) {
+        updateScanStats();
+        table.on('draw', function() {
+          updateScanStats();
+          $('#selectAll').prop('checked', false);
+        });
+      }
+
+      // 2. Setup Scanner Input
+      const globalInput = document.getElementById('globalScanInput');
+      if (globalInput) {
+        globalInput.focus();
+        globalInput.setAttribute('autocomplete', 'off');
+
+        // Refocus on click
+        $(document).on('click', function(e) {
+          if (!['INPUT', 'BUTTON', 'A', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
+            globalInput.focus();
+          }
+        });
+
+        // Anti-Paste & Drop
+        globalInput.addEventListener('paste', e => { e.preventDefault(); alert('ห้าม Copy วาง!'); });
+        globalInput.addEventListener('drop', e => { e.preventDefault(); });
+
+        // Handle Enter Key
+        globalInput.addEventListener('keypress', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (this.value.length > 3) {
+              handleGlobalScan(this.value);
+            }
+            this.value = '';
+          }
+        });
+        
+        // Speed Check (Anti-Manual Typing)
+        let lastTime = 0;
+        globalInput.addEventListener('input', function() {
+          const now = Date.now();
+          if (this.value.length > 1 && (now - lastTime) > 70) { 
+            this.value = ""; // Too slow = Clear
+          }
+          lastTime = now;
+        });
+      }
+    });
+
+    // ========== Core Scanning Logic ==========
+    function handleGlobalScan(rawValue) {
+      const cleanValue = extractOrderNumber(rawValue);
+      
+      if (!cleanValue) {
+        showGlobalStatus('ไม่พบเลขออเดอร์', 'warning');
+        return;
+      }
+      
+      showGlobalStatus(`<span class="spinner-border spinner-border-sm"></span> กำลังตรวจสอบ... <strong>${cleanValue}</strong>`, 'loading');
+
+      // 1. ลองหาในตารางหน้าปัจจุบันก่อน
+      let foundInTable = false;
+      
+      if (table) {
+        table.search(cleanValue).draw();
+        const visibleRows = $('#reportTable tbody tr:visible');
+        
+        visibleRows.each(function() {
+          const input = $(this).find('input.scan-input');
+          if (input.length && input.data('expected') === cleanValue) {
+            foundInTable = true;
+            
+            if (input.data('scanned') === 'true' || input.hasClass('is-valid')) {
+              showGlobalStatus(`ออเดอร์ ${cleanValue}<br><small>สแกนไปแล้ว (ในหน้านี้)</small>`, 'warning');
+              playBeep('warning');
+            } else {
+              markAsScanned_UI(input[0]); 
+              apiScanOrder(cleanValue);
+              showGlobalStatus(`<i class="bi bi-check-circle-fill"></i> สแกนสำเร็จ<br><small>${cleanValue}</small>`, 'success');
+              playBeep('success');
+              this.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            return false;
+          }
+        });
+      }
+
+      // 2. ถ้าไม่เจอในตาราง ให้เช็คกับ Server (Cross-Report Scan)
+      if (!foundInTable) {
+        checkOrderStatusAndScan(cleanValue);
+      } else {
+        setTimeout(() => { if(table) table.search('').draw(); }, 3000);
+      }
+    }
+
+    // ฟังก์ชันเช็คสถานะ + บันทึกการสแกนข้ามรายงาน (รองรับหลายสถานะ)
+    function checkOrderStatusAndScan(orderId) {
+      fetch('/api/check_order_status', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ order_id: orderId })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.found) {
+          // แปลงรหัสเป็นชื่อไทย
+          const reportMap = {
+            'READY': 'ใบงานคลัง',
+            'LOW_STOCK': 'สินค้าน้อย',
+            'SHORTAGE': 'ไม่มีสินค้า',
+            'NOT_ENOUGH': 'สินค้าไม่พอส่ง',
+            'PACKED': 'แพ็คแล้ว',
+            'CANCELLED': 'ยกเลิก',
+            'ISSUED': 'จ่ายงานแล้ว',
+            'NOT_IN_SBS': 'ยังไม่นำเข้า SBS'
+          };
+
+          // รองรับทั้งแบบใหม่ (statuses) และแบบเก่า (status)
+          let statusList = data.statuses || [data.status];
+          let thaiNames = statusList.map(s => reportMap[s] || s).join(' / ');
+
+          // เช็คว่ามีสถานะ "จบงาน" ปนอยู่หรือไม่ (ยกเลิก / จ่ายแล้ว)
+          let isFinished = statusList.includes('CANCELLED') || statusList.includes('ISSUED');
+
+          if (!isFinished) {
+            apiScanOrder(orderId);
+            let msg = `บันทึกสแกนแล้ว (${thaiNames})<br><small>ระบบบันทึกสถานะให้แล้ว</small>`;
+            
+            let type = 'success'; 
+            if(data.color === 'danger') type = 'error';
+            else if(data.color === 'warning') type = 'warning';
+            else if(data.color === 'dark') type = 'dark';
+            else if(data.color === 'info') type = 'info';
+            
+            showGlobalStatus(msg, type);
+            playBeep('success');
+          } else {
+            showGlobalStatus(`แจ้งเตือน: ${thaiNames}`, data.color === 'danger' ? 'error' : 'info');
+            playBeep('error');
+          }
+        } else {
+          showGlobalStatus(`ไม่พบข้อมูลในระบบ<br><small>${orderId}</small>`, 'error');
+          playBeep('error');
+        }
+        if(table) table.search('').draw();
+      })
+      .catch(e => {
+        console.error(e);
+        showGlobalStatus('การเชื่อมต่อขัดข้อง', 'error');
+      });
+    }
+
+    function apiScanOrder(oid) {
+      fetch('/api/scan_order', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ order_id: oid })
+      }).catch(e => console.error('Auto-scan failed', e));
+    }
+
+    function markAsScanned_UI(inputElement) {
+      const input = $(inputElement);
+      input.val('✓').addClass('is-valid').removeClass('is-invalid')
+           .css('background-color', '#d4edda').data('scanned', 'true');
+      input.siblings('.scan-print-box').addClass('checked').text('✓');
+      updateScanStats(); // อัปเดต Dashboard ทันที
+    }
+
+    // ========== Scan Dashboard Logic ==========
+    function updateScanStats() {
+      if (!table) return;
+      const allRows = table.rows({ search: 'applied' }).nodes();
+      let total = allRows.length;
+      let scanned = 0;
+      
+      $(allRows).each(function() {
+        const input = $(this).find('input.scan-input');
+        if (input.val().includes('✓') || input.data('scanned') == 'true') {
+          scanned++;
+        }
+      });
+      
+      $('#dash-total').text(total);
+      $('#dash-scanned').text(scanned);
+    }
+
+    // ========== Checkbox Logic ==========
+    function toggleSelectAll(source) {
+      const checkboxes = document.querySelectorAll('.order-checkbox');
+      checkboxes.forEach(cb => cb.checked = source.checked);
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      const count = document.querySelectorAll('.order-checkbox:checked').length;
+      const badge = document.getElementById('selectedCount');
+      if(badge) badge.innerText = `Selected: ${count}`;
+    }
+
+    function showGlobalStatus(html, type = 'normal') {
+      const box = $('#globalScanStatus');
+      if (scanStatusTimer) clearTimeout(scanStatusTimer);
+
+      box.removeClass('alert-success alert-danger alert-warning alert-info alert-dark alert-secondary')
+         .addClass('alert text-center shadow-sm border py-2');
+      box.css({ 'min-height': '50px', 'display': 'flex', 'align-items': 'center', 'justify-content': 'center' });
+
+      if (type === 'success') box.addClass('alert-success');
+      else if (type === 'error') box.addClass('alert-danger');
+      else if (type === 'warning') box.addClass('alert-warning');
+      else if (type === 'loading' || type === 'info') box.addClass('alert-info');
+      else if (type === 'dark') box.addClass('alert-dark');
+      else box.addClass('alert-secondary');
+
+      let content = html;
+      if (!html.includes('spinner')) {
+        content = `<div style="line-height:1.2;">${html}</div>`;
+      }
+      box.html(content);
+
+      if (type !== 'normal' && type !== 'loading') {
+        scanStatusTimer = setTimeout(() => {
+          showGlobalStatus('<span class="text-muted small"><i class="bi bi-circle-fill text-success" style="font-size:8px;"></i> พร้อมใช้งาน</span>', 'normal');
+        }, 5000);
+      }
+    }
+
+    function extractOrderNumber(val) {
+      return val.toUpperCase()
+        .replace(/^(SHOPEE ORDER NO\.?|LAZADA ORDER NUMBER:?|ORDER:?)\s*/i, '')
+        .replace(/[\s\-_]/g, '').trim();
+    }
+
+    function playBeep(type) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = (type==='success') ? 800 : (type==='warning')? 600 : 300;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+        osc.start(); osc.stop(ctx.currentTime + 0.15);
+      } catch(e){}
+    }
+
+    // Update Round function
+    async function updateRound() {
+      const v = document.getElementById('round-input').value;
+      if (!v) { alert('กรุณากรอกรอบที่'); return; }
+      const oids = "{{ csv_oids }}".split(',').filter(Boolean);
+      if (oids.length === 0) { alert('ไม่พบออเดอร์ในรายงานนี้'); return; }
+      if (!confirm('อัปเดตรอบเป็น ' + v + ' ให้กับ ' + oids.length + ' ออเดอร์?')) return;
+      try {
+        const res = await fetch('{{ url_for("update_lowstock_round") }}', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ order_ids: oids, round: v })
+        });
+        const j = await res.json();
+        if (j.success) {
+          alert(j.message || 'อัปเดตรอบสำเร็จ');
+          location.reload();
+        } else {
+          alert(j.message || 'อัปเดตรอบไม่สำเร็จ');
+        }
+      } catch (e) { alert('เกิดข้อผิดพลาด: ' + e); }
+    }
+
+    function setToday(btn, startName, endName) {
+      const form = btn.closest('form');
+      const start = form.querySelector(`input[name="${startName}"]`);
+      const end = form.querySelector(`input[name="${endName}"]`);
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const today = `${y}-${m}-${dd}`;
+      if (start) start.value = today;
+      if (end) end.value = today;
+      form.submit();
+    }
+  </script>
+
+  <script>
+    // ตรวจสอบว่าต้องพิมพ์อัตโนมัติหรือไม่ (Auto Print)
+    document.addEventListener("DOMContentLoaded", function() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('auto_print') === '1') {
+        // รอให้หน้าเว็บโหลดสมบูรณ์สักนิด แล้วค่อยพิมพ์
+        setTimeout(function() {
+          window.print();
+        }, 500);
+      }
+    });
+  </script>
+</body>
+</html>

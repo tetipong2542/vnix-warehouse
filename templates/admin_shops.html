@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        🏪
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">จัดการรายชื่อร้าน</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          จัดการข้อมูลร้านค้าในแต่ละแพลตฟอร์ม
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<div class="table-responsive">
+  <table class="table table-bordered table-striped align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:60px;">#</th>
+        <th>แพลตฟอร์ม</th>
+        <th>ชื่อร้าน</th>
+        <th class="text-center" style="width:120px;"># ออเดอร์</th>
+        <th style="width:140px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in shops %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ s.platform }}</td>
+        <td>{{ s.name }}</td>
+        <td class="text-center">{{ counts.get(s.id, 0) }}</td>
+        <td>
+          <form method="post" action="{{ url_for('delete_shop', shop_id=s.id) }}"
+                onsubmit="return confirm('ยืนยันลบร้าน {{ s.name }} ? ข้อมูลออเดอร์จะไม่ถูกลบ');">
+            <!-- {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %} -->
+            <button class="btn btn-sm btn-outline-danger"
+                    {% if counts.get(s.id,0)>0 %}disabled title="มีออเดอร์ผูกอยู่ ไม่สามารถลบ"{% endif %}>
+              ลบชื่อร้าน
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

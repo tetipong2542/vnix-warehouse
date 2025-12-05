@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.8);z-index:9999;align-items:center;justify-content:center;">
+  <div class="text-center">
+    <div class="spinner-border text-primary" role="status" style="width:3rem;height:3rem;">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    <div class="mt-2 text-primary fw-semibold">กำลังโหลดข้อมูล...</div>
+  </div>
+</div>
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">📋</div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">Order จ่ายงานแล้ว</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          ออเดอร์ที่จ่ายงานไปแล้ว ({{ rows|length }} รายการ)
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<!-- Filter Form -->
+<div class="card shadow-sm mb-4 border-0">
+  <div class="card-body bg-light rounded-3">
+    <form class="row gy-2 gx-3 align-items-end" id="filterForm" method="get">
+      <div class="col-md-2">
+        <label class="form-label fw-bold small text-muted">แพลตฟอร์ม</label>
+        <select name="platform" class="form-select form-select-sm">
+          <option value="">ทั้งหมด</option>
+          {% for p in platforms %}
+            <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold small text-muted">ร้าน</label>
+        <select name="shop_id" class="form-select form-select-sm">
+          <option value="">ทั้งหมด</option>
+          {% for s in shops %}
+            <option value="{{s.id}}" {% if shop_sel==s.id %}selected{% endif %}>{{s.platform}} • {{s.name}}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold small text-muted">จากวันที่จ่าย</label>
+        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from_sel or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold small text-muted">ถึงวันที่</label>
+        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to_sel or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-bold small text-muted">ค้นหาเลข Order</label>
+        <input type="text" name="q" class="form-control form-control-sm" value="{{q}}" placeholder="ระบุเลข Order...">
+      </div>
+      <div class="col-md-2 d-flex gap-2">
+        <button class="btn btn-primary btn-sm w-50 fw-bold" type="submit">
+          <i class="bi bi-search"></i> กรอง
+        </button>
+        <a href="{{ url_for('dashboard_issued') }}" class="btn btn-outline-secondary btn-sm w-50 fw-bold" title="ล้างค่าการค้นหา">
+          <i class="bi bi-arrow-counterclockwise"></i> รีเซ็ต
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Data Table -->
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <form method="post" action="{{ url_for('issued_unissue') }}" id="unissueForm">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom">
+        <button type="button" class="btn btn-warning btn-sm" id="btnUnissueSelected" disabled>
+          <i class="bi bi-arrow-counterclockwise"></i> ยกเลิกจ่ายงาน (<span id="selectedCount">0</span> รายการ)
+        </button>
+      </div>
+      <table id="issuedTable" class="table table-sm table-bordered table-hover align-middle mb-0" style="width:100%">
+        <thead class="table-light">
+          <tr>
+            <th style="width:40px" class="text-center">
+              <input type="checkbox" id="chkAll" title="เลือกทั้งหมด">
+            </th>
+            <th>เลข Order</th>
+            <th>แพลตฟอร์ม</th>
+            <th>ร้าน</th>
+            <th>ประเภทขนส่ง</th>
+            <th>วันที่จ่ายงาน</th>
+            <th style="width:120px">การกระทำ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td class="text-center">
+              <input type="checkbox" class="rowchk" name="order_ids[]" value="{{ r.order_id }}">
+            </td>
+            <td><strong class="text-primary">{{ r.order_id }}</strong></td>
+            <td>
+              {% if r.platform %}
+                <span class="badge bg-secondary">{{ r.platform }}</span>
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            <td>{{ r.shop_name or '-' }}</td>
+            <td>{{ r.logistic or '-' }}</td>
+            <td>{{ r.issued_at|thai_be }}</td>
+            <td class="text-center">
+              <button type="button" class="btn btn-sm btn-outline-danger btn-unissue-single" data-order-id="{{ r.order_id }}">
+                <i class="bi bi-x-circle"></i> ยกเลิก
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not rows %}
+            <tr><td colspan="7" class="text-center text-muted py-4">ไม่มีรายการที่จ่ายงานแล้ว</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+      <!-- Hidden input for single unissue -->
+      <input type="hidden" name="order_id" id="singleOrderId">
+    </form>
+  </div>
+</div>
+
+<!-- DataTables CSS/JS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<style>
+  #issuedTable th, #issuedTable td { vertical-align: middle; }
+  #issuedTable tbody tr:hover { background-color: rgba(13, 110, 253, 0.05); }
+  .dataTables_wrapper .dataTables_length select { min-width: 80px; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Show loading on form submit
+  document.getElementById('filterForm').addEventListener('submit', function() {
+    document.getElementById('loadingOverlay').style.display = 'flex';
+  });
+
+  // Initialize DataTable
+  {% if rows %}
+  var table = $('#issuedTable').DataTable({
+    paging: true,
+    pageLength: 50,
+    lengthMenu: [[50, 100, 200, -1], [50, 100, 200, "ทั้งหมด"]],
+    searching: false,
+    // [สำคัญ] ปิดการเรียงลำดับอัตโนมัติของ DataTable 
+    // เพื่อให้แสดงผลตามลำดับ "วันที่ล่าสุด" ที่ส่งมาจาก Server (app.py)
+    ordering: false,
+    info: true,
+    language: {
+      lengthMenu: "แสดง _MENU_ รายการ",
+      zeroRecords: "ไม่พบข้อมูล",
+      info: "แสดง _START_ ถึง _END_ จาก _TOTAL_ รายการ",
+      infoEmpty: "ไม่มีข้อมูล",
+      infoFiltered: "(กรองจาก _MAX_ รายการ)",
+      paginate: { first: "หน้าแรก", last: "หน้าสุดท้าย", next: "ถัดไป", previous: "ก่อนหน้า" }
+    },
+    columnDefs: [
+      { orderable: false, targets: "_all" } // ย้ำห้ามเรียงคอลัมน์ใดๆ ที่หน้าเว็บ
+    ]
+  });
+  {% endif %}
+
+  // Checkbox: Select All
+  document.getElementById('chkAll').addEventListener('change', function() {
+    document.querySelectorAll('.rowchk').forEach(c => c.checked = this.checked);
+    updateSelectedCount();
+  });
+
+  // Checkbox: Individual row
+  document.querySelectorAll('.rowchk').forEach(function(chk) {
+    chk.addEventListener('change', updateSelectedCount);
+  });
+
+  function updateSelectedCount() {
+    var count = document.querySelectorAll('.rowchk:checked').length;
+    document.getElementById('selectedCount').textContent = count;
+    document.getElementById('btnUnissueSelected').disabled = (count === 0);
+  }
+
+  // Bulk unissue button
+  document.getElementById('btnUnissueSelected').addEventListener('click', function() {
+    var count = document.querySelectorAll('.rowchk:checked').length;
+    if (count > 0 && confirm('ยืนยันยกเลิกจ่ายงาน ' + count + ' ออเดอร์?')) {
+      document.getElementById('singleOrderId').value = '';
+      document.getElementById('loadingOverlay').style.display = 'flex';
+      document.getElementById('unissueForm').submit();
+    }
+  });
+
+  // Single row unissue buttons
+  document.querySelectorAll('.btn-unissue-single').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var orderId = this.getAttribute('data-order-id');
+      if (confirm('ยืนยันยกเลิกจ่ายงานออเดอร์ ' + orderId + '?')) {
+        // Uncheck all, set single order_id
+        document.querySelectorAll('.rowchk').forEach(c => c.checked = false);
+        document.getElementById('singleOrderId').value = orderId;
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        document.getElementById('unissueForm').submit();
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

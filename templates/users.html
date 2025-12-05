@@ -1,0 +1,220 @@
+
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-4">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3 shadow-sm bg-info text-white">
+        👥
+      </div>
+      <div>
+        <div class="page-title-main">จัดการผู้ใช้งาน</div>
+        <div class="text-muted small">
+          บริหารจัดการบัญชีผู้ใช้และกำหนดสิทธิ์
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-4 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white py-3">
+        <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-person-plus-fill me-2"></i>เพิ่มผู้ใช้งานใหม่</h6>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          <input type="hidden" name="action" value="create">
+          
+          <div class="col-12">
+            <label class="form-label small text-muted fw-bold">ชื่อผู้ใช้ (Username)</label>
+            <div class="input-group">
+              <span class="input-group-text bg-light"><i class="bi bi-person"></i></span>
+              <input name="username" class="form-control" placeholder="ตั้งชื่อผู้ใช้..." required autocomplete="off">
+            </div>
+          </div>
+          
+          <div class="col-12">
+            <label class="form-label small text-muted fw-bold">รหัสผ่าน (Password)</label>
+            <div class="input-group">
+              <span class="input-group-text bg-light"><i class="bi bi-key"></i></span>
+              <input name="password" type="password" class="form-control" id="inputPassword" placeholder="ตั้งรหัสผ่าน..." required autocomplete="new-password">
+              <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                <i class="bi bi-eye-slash" id="toggleIcon"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="col-12">
+            <label class="form-label small text-muted fw-bold">บทบาท (Role)</label>
+            <select name="role" class="form-select">
+              <option value="user">User (ผู้ใช้ทั่วไป)</option>
+              <option value="staff">Staff (พนักงาน)</option>
+              <option value="admin">Admin (ผู้ดูแลระบบ)</option>
+            </select>
+          </div>
+          
+          <div class="col-12 mt-4">
+            <button class="btn btn-primary w-100 fw-bold shadow-sm">
+              <i class="bi bi-plus-lg me-1"></i> บันทึกข้อมูล
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-8 col-lg-9">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-bold"><i class="bi bi-list-ul me-2"></i>รายชื่อผู้ใช้งานทั้งหมด</h6>
+        <span class="badge bg-light text-dark border">{{ users|length }} บัญชี</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="usersTable" class="table table-hover align-middle mb-0 w-100">
+            <thead class="table-light text-secondary small">
+              <tr>
+                <th style="width: 50px;" class="text-center">#</th>
+                <th>ชื่อผู้ใช้</th>
+                <th style="width: 120px;">บทบาท</th>
+                <th style="width: 150px;">สร้างเมื่อ</th>
+                <th style="width: 100px;" class="text-center">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+              <tr>
+                <td class="text-center text-muted small">{{ loop.index }}</td>
+                <td class="fw-bold text-dark">
+                  <div class="d-flex align-items-center">
+                    <div class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2 text-secondary" style="width:32px;height:32px;">
+                      <i class="bi bi-person-fill"></i>
+                    </div>
+                    {{ u.username }}
+                  </div>
+                </td>
+                <td>
+                  {% if u.role == 'admin' %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3">
+                      <i class="bi bi-shield-lock-fill me-1"></i> Admin
+                    </span>
+                  {% elif u.role == 'staff' %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-3">
+                      <i class="bi bi-person-badge-fill me-1"></i> Staff
+                    </span>
+                  {% else %}
+                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle rounded-pill px-3">
+                      <i class="bi bi-person me-1"></i> User
+                    </span>
+                  {% endif %}
+                </td>
+                <td class="text-secondary small">
+                  {{ u.created_at|thai_be }}
+                </td>
+                <td class="text-center">
+                  {% if u.id == CURRENT_USER.id %}
+                    <span class="text-muted small fst-italic">(ตัวเอง)</span>
+                  {% else %}
+                    <form method="post" onsubmit="return confirm('⚠️ ยืนยันลบผู้ใช้ {{u.username}}?\nการกระทำนี้ไม่สามารถกู้คืนได้')" class="d-inline">
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="uid" value="{{u.id}}">
+                      <button class="btn btn-sm btn-outline-danger border-0" title="ลบผู้ใช้">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* ปรับแต่ง Page Title Icon */
+  .page-title-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+  }
+  
+  /* ปรับแต่ง Table Header */
+  .table thead th {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #dee2e6;
+  }
+  
+  /* DataTables Pagination Style */
+  .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: #0d6efd !important;
+    color: white !important;
+    border: 1px solid #0d6efd !important;
+    border-radius: 6px;
+  }
+  
+  /* Hover Effect for Rows */
+  #usersTable tbody tr:hover {
+    background-color: #f8f9fa;
+  }
+</style>
+
+<script>
+// ฟังก์ชัน Show/Hide Password
+document.getElementById('togglePassword').addEventListener('click', function () {
+  const passwordInput = document.getElementById('inputPassword');
+  const icon = document.getElementById('toggleIcon');
+  
+  if (passwordInput.type === 'password') {
+    passwordInput.type = 'text';
+    icon.classList.remove('bi-eye-slash');
+    icon.classList.add('bi-eye');
+  } else {
+    passwordInput.type = 'password';
+    icon.classList.remove('bi-eye');
+    icon.classList.add('bi-eye-slash');
+  }
+});
+
+// เปิดใช้งาน DataTables
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof $ !== 'undefined' && $.fn.dataTable) {
+    $('#usersTable').DataTable({
+      "pageLength": 10,
+      "lengthMenu": [[10, 25, 50, -1], [10, 25, 50, "ทั้งหมด"]],
+      "ordering": true,
+      "language": {
+        "search": "ค้นหา:",
+        "lengthMenu": "แสดง _MENU_ รายการ",
+        "info": "แสดง _START_ ถึง _END_ จาก _TOTAL_ ผู้ใช้",
+        "infoEmpty": "ไม่พบข้อมูล",
+        "infoFiltered": "(กรองจากทั้งหมด _MAX_ รายการ)",
+        "zeroRecords": "ไม่พบข้อมูลที่ตรงกัน",
+        "paginate": {
+          "first": "หน้าแรก",
+          "last": "หน้าสุดท้าย",
+          "next": "ถัดไป",
+          "previous": "ก่อนหน้า"
+        }
+      },
+      "columnDefs": [
+        { "orderable": false, "targets": 4 } // ห้ามเรียงคอลัมน์ปุ่มลบ
+      ]
+    });
+  }
+});
+</script>
+
+{% endblock %}

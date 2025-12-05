@@ -1,0 +1,1290 @@
+
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        📑
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">ใบงานคลัง (Warehouse)</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          สำหรับตรวจสอบและจัดเตรียมสินค้าตามออเดอร์
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<style>
+  footer { display: none !important; }
+  @media print {
+    footer { display: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* ทำให้เส้นตารางชัดตอนพิมพ์ */
+    table.table { border-color: #333 !important; }
+    table.table th, table.table td { border-color: #333 !important; }
+    .d-print-none { display: none !important; }
+    
+    /* แสดงคอลัมน์ Scan Order ตอนพิมพ์ */
+    .scan-col, .scan-cell {
+      display: table-cell !important;
+      width: 80px !important;
+      text-align: center;
+      vertical-align: middle;
+    }
+    
+    /* ซ่อน input และ status text ตอนพิมพ์ */
+    .scan-input, .scan-status {
+      display: none !important;
+    }
+    
+    /* แสดงสัญลักษณ์ตอนพิมพ์ - กล่องขาวว่าง (ยังไม่สแกน) */
+    .scan-print-symbol {
+      display: block !important;
+      font-size: 20px;
+      font-weight: bold;
+      text-align: center;
+      border: 2px solid #666;
+      width: 28px;
+      height: 28px;
+      line-height: 24px;
+      margin: 0 auto;
+      background-color: #fff;
+      color: #999;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    
+    /* สีสัญลักษณ์สำหรับที่สแกนแล้ว - กล่องดำมีเครื่องหมายถูกขาว */
+    .scan-print-symbol.scanned-print {
+      background-color: #000 !important;
+      border-color: #000 !important;
+      color: #fff !important;
+      font-size: 22px;
+      font-weight: bold;
+    }
+  }
+  
+  /* Sortable column headers */
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 20px !important;
+  }
+  th.sortable:hover {
+    background-color: #e9ecef;
+  }
+  th.sortable::after {
+    content: '⇅';
+    position: absolute;
+    right: 5px;
+    opacity: 0.3;
+  }
+  th.sortable.asc::after {
+    content: '▲';
+    opacity: 1;
+  }
+  th.sortable.desc::after {
+    content: '▼';
+    opacity: 1;
+  }
+  
+  /* Scan Order input styling */
+  .scan-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .scan-input {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    text-transform: uppercase;
+  }
+  .scan-input:focus {
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    background-color: #fff8dc;
+  }
+  .scan-input.is-valid {
+    border-color: #28a745 !important;
+    background-color: #d4edda !important;
+  }
+  .scan-input.is-invalid {
+    border-color: #dc3545 !important;
+    background-color: #f8d7da !important;
+  }
+  .scan-status {
+    font-size: 0.85rem;
+    min-height: 20px;
+  }
+</style>
+
+<div class="container">
+  <!-- หัวข้อ + ปุ่มพิมพ์/ล็อก -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">
+      {{ report_title or "ใบงานคลัง (Warehouse Job Sheet)" }}
+      {% if is_history_view %}<span class="badge bg-info ms-2">งานที่พิมพ์แล้ว</span>{% endif %}
+    </h3>
+    <div class="d-print-none d-flex gap-2">
+      {% if not official_print %}
+        <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelected()">🔒 พิมพ์และล็อกงานที่เลือก</button>
+        <button id="printAllBtn" class="btn btn-warning" onclick="printAllOrders()">🔒 พิมพ์และล็อกงานทั้งหมด</button>
+        <button id="updateDispatchBtn" class="btn btn-primary" onclick="showDispatchModal()">📝 จ่ายงาน(รอบที่)</button>
+      {% endif %}
+      {% if is_history_view %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('warehouse_printed_history', reset='today') }}">รีเฟรช </a>
+      {% else %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse', reset='all') }}">รีเฟรช/Orderค้าง</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- แถบแจ้งโหมด -->
+  {% if is_history_view %}
+    <div class="alert alert-primary d-print-none">
+      <strong>📋 โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
+    </div>
+  {% elif official_print and printed_meta %}
+    <div class="alert alert-success d-print-none">
+      <strong>Official print</strong>
+      • ผู้ออก: {{ printed_meta.by }}
+      • เวลา: {{ printed_meta.at|thai_be }}
+      • จำนวนออเดอร์: {{ printed_meta.orders }}
+      {% if printed_meta.override %}<span class="badge text-bg-warning ms-2">Reprint (Admin)</span>{% endif %}
+    </div>
+  {% else %}
+    <div class="alert alert-info d-print-none">
+      นี่คือโหมด <strong>Preview</strong> — จะไม่ล็อกงานจนกว่าจะกด "พิมพ์และล็อกงาน"
+    </div>
+  {% endif %}
+
+  <!-- ฟอร์มฟิลเตอร์ (GET) -->
+  <form class="row gy-2 gx-2 align-items-end mb-2 d-print-none" method="get" action="{{ url_for('print_warehouse') if not is_history_view else url_for('warehouse_printed_history') }}">
+    {% if is_history_view %}
+    <div class="col-md-4">
+      <label class="form-label">วันที่พิมพ์ (เริ่ม - ถึง)</label>
+      <div class="d-flex gap-2">
+        <input type="date" name="print_date_from" class="form-control" value="{{ print_date_from or '' }}" placeholder="เริ่ม">
+        <input type="date" name="print_date_to" class="form-control" value="{{ print_date_to or '' }}" placeholder="ถึง">
+      </div>
+    </div>
+    {% endif %}
+    <div class="col-md-2">
+      <label class="form-label">แพลตฟอร์ม</label>
+      <select name="platform" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+          <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ร้าน</label>
+      <select name="shop_id" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for s in shops %}
+          <option value="{{s.id}}" {% if shop_sel and (shop_sel|int==s.id) %}selected{% endif %}>{{ s.platform }} • {{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">ประเภทขนส่ง</label>
+      <select name="logistic" class="form-select">
+        <option value="">ทั้งหมด</option>
+        {% for l in logistics %}
+          <option value="{{l}}" {% if logistic_sel==l %}selected{% endif %}>{{l}}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label">วันที่กดพร้อมรับ</label>
+      <div class="d-flex gap-2 align-items-center">
+        <input type="date" name="accepted_from" class="form-control" value="{{ accepted_from or '' }}" style="flex: 1;">
+        <span>ถึง</span>
+        <input type="date" name="accepted_to" class="form-control" value="{{ accepted_to or '' }}" style="flex: 1;">
+        <button type="submit" class="btn btn-primary btn-sm">กรอง</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setTodayWarehouse()">*วันนี้</button>
+      </div>
+    </div>
+    <div class="col-md-2">
+      {% if is_history_view %}
+        <a class="btn btn-success w-100" href="{{ url_for('export_warehouse_history_excel', **request.args) }}">Export Excel ประวัติ</a>
+      {% else %}
+        <a class="btn btn-success w-100" href="{{ url_for('export_warehouse_excel', **request.args) }}">Export Excel ทั้งหมด</a>
+      {% endif %}
+    </div>
+  </form>
+
+  <!-- กล่องค้นหาออเดอร์ (Global Search) -->
+  <div class="d-print-none mb-3">
+    <form method="get" action="{{ url_for('warehouse_printed_history') if is_history_view else url_for('print_warehouse') }}" class="d-flex gap-2 align-items-center">
+      <div class="input-group" style="max-width: 600px;">
+        <span class="input-group-text bg-white"><i class="bi bi-search" style="font-size: 18px;"></i></span>
+        <input type="text" name="q" class="form-control" placeholder="🔍 ค้นหาเลข Order (ค้นหาทั้งหมด ไม่จำกัดวันที่)" value="{{ q or '' }}" style="font-size: 15px;">
+        <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> ค้นหา</button>
+      </div>
+      
+      {% if q %}
+        <a href="{{ url_for('warehouse_printed_history', reset='today') if is_history_view else url_for('print_warehouse', reset='all') }}" class="btn btn-outline-secondary" title="ล้างคำค้นหา">
+          <i class="bi bi-x-lg"></i> ล้าง
+        </a>
+      {% endif %}
+    </form>
+    
+    {% if q %}
+      <div class="alert alert-info mt-2 mb-0">
+        <i class="bi bi-info-circle"></i> กำลังค้นหา: <strong>{{ q }}</strong> {% if is_history_view %}(ค้นหาในประวัติการพิมพ์ทั้งหมด){% else %}(ค้นหาทั้งหมดไม่จำกัดวันที่){% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- กล่องสแกนหลัก (Global Scanner) - Compact Mode -->
+  <div class="d-print-none mx-auto mb-3" style="max-width: 500px;">
+    
+    <!-- กล่อง Input สำหรับยิงบาร์โค้ด -->
+    <div class="input-group shadow-sm mb-2">
+      <span class="input-group-text bg-primary text-white border-primary px-3">
+        <i class="bi bi-upc-scan" style="font-size: 20px;"></i>
+      </span>
+      <input type="text" id="globalScanInput" 
+             class="form-control fw-bold text-primary" 
+             placeholder="ยิงบาร์โค้ดที่นี่..." 
+             autocomplete="off" 
+             autofocus
+             style="font-size: 18px; height: 45px;">
+    </div>
+
+    <!-- กล่องแสดงสถานะ -->
+    <div id="globalScanStatusContainer">
+      <div id="globalScanStatus" class="alert alert-secondary text-center shadow-sm py-2" role="alert" 
+           style="min-height: 50px; display: flex; align-items: center; justify-content: center;">
+        <span class="h6 mb-0 text-muted"><i class="bi bi-circle-fill text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>
+      </div>
+    </div>
+
+    <div class="text-center text-muted small mt-1" style="font-size: 0.8rem;">
+      <i class="bi bi-info-circle me-1"></i> ใช้เครื่องสแกนยิงที่กล่องด้านบน
+    </div>
+  </div>
+
+  <!-- Dashboard สรุปยอด + Filter Controls -->
+  <div class="row g-2 mb-3 d-print-none">
+    <div class="col-md-6 d-flex gap-3">
+      <div class="card shadow-sm border-primary flex-fill">
+        <div class="card-body p-2 text-center">
+          <small class="text-muted fw-bold">📦 Order ทั้งหมด</small>
+          <h3 class="fw-bold text-primary mb-0" id="dash-total">{{ count_orders }}</h3>
+        </div>
+      </div>
+      <div class="card shadow-sm border-success flex-fill">
+        <div class="card-body p-2 text-center">
+          <small class="text-muted fw-bold">✅ Scan แล้ว</small>
+          <h3 class="fw-bold text-success mb-0" id="dash-scanned">0</h3>
+        </div>
+      </div>
+      <div class="card shadow-sm border-warning flex-fill">
+        <div class="card-body p-2 text-center">
+          <small class="text-muted fw-bold">⏳ รอสแกน</small>
+          <h3 class="fw-bold text-warning mb-0" id="dash-pending">0</h3>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6 d-flex flex-column justify-content-end align-items-end gap-2">
+       <div><span class="badge text-bg-secondary fs-6" id="selectedCount">Selected: 0</span></div>
+       <div class="d-flex gap-1 flex-wrap">
+          <input type="number" id="dispatchRoundFilter" class="form-control form-control-sm" style="width: 140px;" placeholder="กรอง จ่ายงาน(รอบที่)">
+          <button class="btn btn-sm btn-outline-info" onclick="filterByDispatchRound()">กรอง</button>
+          <input type="number" id="printCountFilter" class="form-control form-control-sm" style="width: 120px;" placeholder="กรอง พิมพ์แล้ว">
+          <button class="btn btn-sm btn-outline-primary" onclick="filterByPrintCount()">กรอง</button>
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()">ล้าง</button>
+       </div>
+    </div>
+  </div>
+
+  <!-- ตารางแสดงผล -->
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" id="warehouseTable">
+      <thead class="table-light">
+        <tr>
+          <th class="d-print-none" style="width: 40px;">
+            <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)">
+          </th>
+          <th class="sortable" data-column="platform">แพลตฟอร์ม</th>
+          <th class="sortable" data-column="shop">ร้าน</th>
+          <th class="sortable" data-column="order_id" style="width: 140px;">เลข Order</th>
+          <th class="sortable" data-column="logistic">ประเภทขนส่ง</th>
+          <th class="sortable" data-column="accepted_by">ผู้กดรับ</th>
+          <th class="text-center scan-col" style="width: 180px;">Scan Order</th>
+          <th class="sortable text-center" data-column="dispatch_round" style="width: 120px;">จ่ายงาน(รอบที่)</th>
+          <th class="sortable text-center" data-column="printed_count" style="width: 120px;">พิมพ์แล้ว (ครั้ง)</th>
+          <th class="sortable text-center" data-column="printed_at" style="width: 180px;">วัน/เดือน/ปี/เวลา ที่พิมพ์</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-order-id="{{ r.order_id }}" data-platform="{{ r.platform }}" data-shop="{{ r.shop }}" data-logistic="{{ r.logistic or '-' }}" data-accepted-by="{{ r.accepted_by or '-' }}" data-dispatch-round="{% if r.dispatch_round is not none %}{{ r.dispatch_round }}{% endif %}" data-printed-count="{% if r.printed_warehouse is not none %}{{ r.printed_warehouse }}{% else %}0{% endif %}" data-printed-at="{% if r.printed_warehouse_at %}{{ r.printed_warehouse_at.isoformat() }}{% endif %}">
+            
+            {# Checkbox #}
+            <td class="d-print-none">
+              <input type="checkbox" class="order-checkbox" value="{{ r.order_id }}" onchange="updateSelectedCount()">
+            </td>
+            
+            <td>{{ r.platform }}</td>
+            <td>{{ r.shop }}</td>
+            <td><strong>{{ r.order_id }}</strong></td>
+            <td>{{ r.logistic or '-' }}</td>
+            <td>{{ r.accepted_by or '-' }}</td>
+            <td class="text-center scan-cell">
+              <div class="scan-container">
+                <input type="text" class="form-control form-control-sm scan-input text-center" 
+                       placeholder="" 
+                       data-expected="{{ r.order_id }}" 
+                       data-scanned="{{ 'true' if r.scanned_at else 'false' }}"
+                       readonly 
+                       tabindex="-1">
+                <span class="scan-status mt-1 d-block"></span>
+                <div class="scan-print-symbol d-none">⬜</div>
+              </div>
+            </td>
+            <td class="text-center">
+              {% if r.dispatch_round is not none %}
+                {{ r.dispatch_round }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if r.get('printed_warehouse') and r.get('printed_warehouse') > 0 %}
+                <span class="badge bg-success">{{ r.get('printed_warehouse') }}</span>
+              {% else %}
+                <span class="text-muted">0</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if r.get('printed_warehouse_at') %}
+                {{ r.get('printed_warehouse_at')|thai_be }}
+                {% if r.get('printed_warehouse_by') %}
+                  <br><small class="text-muted">(โดย: {{ r.get('printed_warehouse_by') }})</small>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- กล่องเซ็นรับ -->
+  <div class="row mt-4 g-3">
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-5">ลายเซ็นคลังรับงาน</div>
+        <div class="text-muted">ชื่อ-นามสกุล / วันเวลา</div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="border rounded p-3" style="height:160px;">
+        <div class="fw-bold mb-2">ลายเซ็นขนส่งรับงาน</div>
+        <div class="text-muted">บริษัทขนส่ง / วันเวลา / เบอร์โทรขนส่ง</div>
+        {% if request.args.get("logi_phone") %}
+          <div class="mt-2">โทร: {{ request.args.get("logi_phone") }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ปุ่มพิมพ์ (เฉพาะโหมด Preview) -->
+  <div class="mt-3 d-print-none">
+    {% if not official_print %}
+      <button class="btn btn-outline-secondary" onclick="window.print()">พิมพ์หน้าปัจจุบัน (Preview)</button>
+    {% endif %}
+  </div>
+</div>
+
+{% if official_print %}
+<script>
+  // พิมพ์อัตโนมัติเมื่อเป็น Official print
+  window.addEventListener('load', function(){ window.print(); });
+</script>
+{% endif %}
+
+<script>
+// ========== Global Shared Variables ==========
+let table = null;
+let allRows = [];
+let sortState = { column: null, direction: 'none' };
+
+document.addEventListener('DOMContentLoaded', function() {
+  const tbody = document.querySelector('#warehouseTable tbody');
+  allRows = Array.from(tbody.querySelectorAll('tr'));
+  
+  // Initialize DataTables with Pagination
+  if ($('#warehouseTable').length) {
+    table = $('#warehouseTable').DataTable({
+      "paging": true,
+      "pageLength": 100,
+      "lengthMenu": [
+        [100, 200, 300, 400, 500, -1], 
+        [100, 200, 300, 400, 500, "ทั้งหมด"]
+      ],
+      "ordering": false, // ปิดเพราะใช้ custom sorting
+      "info": true,
+      "searching": true,
+      "dom": "<'row mb-2'<'col-sm-6'l><'col-sm-6 text-end'f>>" +
+             "<'row'<'col-sm-12'tr>>" +
+             "<'row mt-2'<'col-sm-5'i><'col-sm-7'p>>",
+      "language": {
+        "lengthMenu": "แสดง _MENU_ รายการ/หน้า",
+        "zeroRecords": "ไม่พบข้อมูล",
+        "info": "แสดงรายการที่ _START_ ถึง _END_ จากทั้งหมด _TOTAL_ รายการ",
+        "infoEmpty": "ไม่มีข้อมูล",
+        "infoFiltered": "(กรองจากทั้งหมด _MAX_ รายการ)",
+        "search": "ค้นหาในตาราง:",
+        "paginate": { 
+          "first": "หน้าแรก", 
+          "last": "หน้าสุดท้าย", 
+          "next": "ถัดไป »", 
+          "previous": "« ก่อนหน้า" 
+        }
+      },
+      "drawCallback": function(settings) {
+        updateScanStats();
+        updateSelectedCount();
+      }
+    });
+    
+    // Initial update
+    updateScanStats();
+  }
+});
+
+// ========== ฟังก์ชันอัปเดตยอด Dashboard ==========
+function updateScanStats() {
+  if (!table) {
+    // Fallback ถ้าไม่มี DataTables
+    const allInputs = document.querySelectorAll('.scan-input');
+    let scanned = 0;
+    allInputs.forEach(input => {
+      if (input.classList.contains('is-valid') || input.value.includes('✓') || input.dataset.scanned === 'true') {
+        scanned++;
+      }
+    });
+    document.getElementById('dash-total').textContent = allInputs.length;
+    document.getElementById('dash-scanned').textContent = scanned;
+    document.getElementById('dash-pending').textContent = allInputs.length - scanned;
+    return;
+  }
+
+  // ใช้ DataTables API ดึงข้อมูลทั้งหมดที่ผ่านการกรอง (ไม่ใช่แค่หน้าปัจจุบัน)
+  const allFilteredRows = table.rows({ search: 'applied' }).nodes();
+  
+  let totalCount = allFilteredRows.length;
+  let scannedCount = 0;
+
+  $(allFilteredRows).each(function() {
+    const input = $(this).find('input.scan-input');
+    if (input.hasClass('is-valid') || input.val().includes('✓') || input.data('scanned') === 'true') {
+      scannedCount++;
+    }
+  });
+
+  document.getElementById('dash-total').textContent = totalCount;
+  document.getElementById('dash-scanned').textContent = scannedCount;
+  document.getElementById('dash-pending').textContent = totalCount - scannedCount;
+}
+
+// Toggle select all checkboxes (สำหรับหน้าปัจจุบันของ DataTables)
+function toggleSelectAll(checkbox) {
+  if (!table) return;
+  
+  // เลือกเฉพาะ checkbox ในหน้าปัจจุบัน
+  const currentPageRows = table.rows({ page: 'current' }).nodes();
+  $(currentPageRows).find('.order-checkbox:not(:disabled)').prop('checked', checkbox.checked);
+  
+  updateSelectedCount();
+}
+
+// Update selected count badge
+function updateSelectedCount() {
+  // นับจากทุกหน้า (ที่ผ่าน filter)
+  const checked = document.querySelectorAll('.order-checkbox:checked').length;
+  document.getElementById('selectedCount').textContent = `Selected: ${checked}`;
+  
+  // Update select all checkbox state (เฉพาะหน้าปัจจุบัน)
+  const selectAll = document.getElementById('selectAll');
+  if (!table || !selectAll) return;
+  
+  const currentPageRows = table.rows({ page: 'current' }).nodes();
+  const visibleCheckboxes = $(currentPageRows).find('.order-checkbox:not(:disabled)');
+  const visibleChecked = $(currentPageRows).find('.order-checkbox:checked').length;
+  
+  if (visibleCheckboxes.length === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  } else {
+    selectAll.checked = visibleChecked === visibleCheckboxes.length;
+    selectAll.indeterminate = visibleChecked > 0 && visibleChecked < visibleCheckboxes.length;
+  }
+}
+
+// Print selected orders
+function printSelected() {
+  const selected = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => cb.value);
+  
+  if (selected.length === 0) {
+    alert('กรุณาเลือกออเดอร์ที่ต้องการพิมพ์อย่างน้อย 1 รายการ');
+    return;
+  }
+  
+  if (!confirm(`ต้องการพิมพ์และล็อกงาน ${selected.length} ออเดอร์ใช่หรือไม่?`)) {
+    return;
+  }
+  
+  submitPrintForm(selected);
+}
+
+// Print all orders
+function printAllOrders() {
+  const allOrderIds = Array.from(new Set(
+    Array.from(document.querySelectorAll('.order-checkbox')).map(cb => cb.value)
+  ));
+  
+  if (allOrderIds.length === 0) {
+    alert('ไม่พบออเดอร์ที่จะพิมพ์');
+    return;
+  }
+  
+  if (!confirm(`ต้องการพิมพ์และล็อกงานทั้งหมด ${allOrderIds.length} ออเดอร์ใช่หรือไม่?`)) {
+    return;
+  }
+  
+  submitPrintForm(allOrderIds);
+}
+
+// Submit print form
+function submitPrintForm(orderIds) {
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = '{{ print_action or url_for("print_warehouse_commit") }}';
+  
+  // Add hidden fields
+  const fields = {
+    platform: '{{ platform_sel or "" }}',
+    shop_id: '{{ shop_sel or "" }}',
+    logistic: '{{ logistic_sel or "" }}',
+    order_ids: orderIds.join(',')
+  };
+  
+  {% if CURRENT_USER and CURRENT_USER.role == 'admin' %}
+  // Check if admin override is needed
+  const override = confirm('ต้องการอนุญาตพิมพ์ซ้ำหรือไม่? (สำหรับแอดมิน)');
+  if (override) {
+    fields.override = '1';
+  }
+  {% endif %}
+  
+  for (const [key, value] of Object.entries(fields)) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = key;
+    input.value = value;
+    form.appendChild(input);
+  }
+  
+  document.body.appendChild(form);
+  form.submit();
+}
+
+// Filter by print count (ใช้ DataTables custom filtering)
+function filterByPrintCount() {
+  const filterValue = document.getElementById('printCountFilter').value;
+  
+  if (filterValue === '') {
+    clearPrintCountFilter();
+    return;
+  }
+  
+  const targetCount = parseInt(filterValue);
+  
+  // ใช้ DataTables custom filter
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    const row = table.row(dataIndex).node();
+    const printedCount = parseInt(row.dataset.printedCount || '0');
+    return printedCount === targetCount;
+  });
+  
+  table.draw();
+  updateSelectedCount();
+}
+
+// Clear print count filter
+function clearPrintCountFilter() {
+  document.getElementById('printCountFilter').value = '';
+  // ลบ custom filter ทั้งหมด
+  $.fn.dataTable.ext.search.pop();
+  if (table) table.draw();
+  updateSelectedCount();
+}
+
+// Filter by dispatch round
+function filterByDispatchRound() {
+  const filterValue = document.getElementById('dispatchRoundFilter').value;
+  
+  if (filterValue === '') {
+    clearDispatchRoundFilter();
+    return;
+  }
+  
+  const targetRound = parseInt(filterValue);
+  
+  // ใช้ DataTables custom filter
+  $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    const row = table.row(dataIndex).node();
+    const dispatchRound = row.dataset.dispatchRound;
+    const roundValue = dispatchRound ? parseInt(dispatchRound) : null;
+    return roundValue === targetRound;
+  });
+  
+  table.draw();
+  updateSelectedCount();
+}
+
+// Clear dispatch round filter
+function clearDispatchRoundFilter() {
+  document.getElementById('dispatchRoundFilter').value = '';
+  // ลบ custom filter ทั้งหมด
+  $.fn.dataTable.ext.search.pop();
+  if (table) table.draw();
+  updateSelectedCount();
+}
+
+// Clear all filters
+function clearAllFilters() {
+  document.getElementById('printCountFilter').value = '';
+  document.getElementById('dispatchRoundFilter').value = '';
+  // ลบ custom filter ทั้งหมด
+  $.fn.dataTable.ext.search.length = 0;
+  if (table) {
+    table.search('').draw();
+  }
+  updateSelectedCount();
+}
+
+// Show dispatch round modal
+function showDispatchModal() {
+  const selected = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => cb.value);
+  
+  if (selected.length === 0) {
+    alert('กรุณาเลือกออเดอร์ที่ต้องการจ่ายงานอย่างน้อย 1 รายการ');
+    return;
+  }
+  
+  const round = prompt(`จ่ายงานรอบที่เท่าไหร่? (${selected.length} ออเดอร์ที่เลือก)`);
+  
+  if (round === null) {
+    return; // User cancelled
+  }
+  
+  if (round === '' || isNaN(parseInt(round))) {
+    alert('กรุณาระบุเลขรอบการจ่ายงานที่ถูกต้อง');
+    return;
+  }
+  
+  // Send update request
+  updateDispatchRound(selected, parseInt(round));
+}
+
+// Update dispatch round via API
+async function updateDispatchRound(orderIds, dispatchRound) {
+  try {
+    const response = await fetch('{{ url_for("update_dispatch_round") }}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        order_ids: orderIds,
+        dispatch_round: dispatchRound
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      alert(result.message);
+      // Reload page to show updated data
+      window.location.reload();
+    } else {
+      alert('เกิดข้อผิดพลาด: ' + result.error);
+    }
+  } catch (error) {
+    alert('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message);
+  }
+}
+
+// Sort table by column
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', function() {
+    const column = this.dataset.column;
+    
+    // Determine sort direction
+    if (sortState.column === column) {
+      if (sortState.direction === 'none') {
+        sortState.direction = 'asc';
+      } else if (sortState.direction === 'asc') {
+        sortState.direction = 'desc';
+      } else {
+        sortState.direction = 'none';
+      }
+    } else {
+      sortState.column = column;
+      sortState.direction = 'asc';
+    }
+    
+    // Update UI
+    document.querySelectorAll('th.sortable').forEach(h => {
+      h.classList.remove('asc', 'desc');
+    });
+    
+    if (sortState.direction !== 'none') {
+      this.classList.add(sortState.direction);
+    }
+    
+    // Sort rows
+    sortTable(column, sortState.direction);
+  });
+});
+
+function sortTable(column, direction) {
+  const tbody = document.querySelector('#warehouseTable tbody');
+  
+  if (direction === 'none') {
+    // Restore original order
+    allRows.forEach(row => tbody.appendChild(row));
+    return;
+  }
+  
+  // Since each row is now 1 order, just sort rows directly
+  const sortedRows = [...allRows].sort((rowA, rowB) => {
+    let valueA = rowA.dataset[column === 'order_id' ? 'orderId' : column] || '';
+    let valueB = rowB.dataset[column === 'order_id' ? 'orderId' : column] || '';
+    
+    // Handle numeric sorting for printed_count and dispatch_round
+    if (column === 'printed_count' || column === 'dispatch_round') {
+      valueA = parseInt(valueA) || 0;
+      valueB = parseInt(valueB) || 0;
+      
+      if (direction === 'asc') {
+        return valueA - valueB;
+      } else {
+        return valueB - valueA;
+      }
+    }
+    
+    // Handle datetime sorting for printed_at
+    if (column === 'printed_at') {
+      const dateA = valueA ? new Date(valueA).getTime() : 0;
+      const dateB = valueB ? new Date(valueB).getTime() : 0;
+      
+      if (direction === 'asc') {
+        return dateA - dateB;
+      } else {
+        return dateB - dateA;
+      }
+    }
+    
+    // String comparison with Thai locale support
+    const comparison = valueA.localeCompare(valueB, 'th');
+    return direction === 'asc' ? comparison : -comparison;
+  });
+  
+  // Rebuild table with sorted rows
+  sortedRows.forEach(row => tbody.appendChild(row));
+}
+
+// Initialize
+updateSelectedCount();
+
+function setTodayWarehouse() {
+  // ดึงวันที่ปัจจุบันตามเวลาเครื่อง (Local Time) แก้ปัญหาเวลา 00:xx แล้วเป็นวันเก่า
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const today = `${year}-${month}-${day}`;
+
+  // หา form ที่ใกล้ที่สุด
+  const form = document.querySelector('form[method="get"]');
+  const inputFrom = form.querySelector('input[name="accepted_from"]');
+  const inputTo = form.querySelector('input[name="accepted_to"]');
+  
+  // ใส่วันที่
+  if(inputFrom) inputFrom.value = today;
+  if(inputTo) inputTo.value = today;
+
+  // สั่ง Submit Form ทันที
+  form.submit();
+}
+
+// ========== Barcode Scanning System ==========
+// Global Scanner (Main scanning point)
+
+(function() {
+  const globalInput = document.getElementById('globalScanInput');
+  const globalStatus = document.getElementById('globalScanStatus');
+  const scanInputs = document.querySelectorAll('.scan-input');
+  let lastKeyTime = 0;
+  const SCAN_SPEED_THRESHOLD = 50; // milliseconds between keystrokes (scanners type very fast)
+  
+  // โหลดข้อมูลจาก Server (ถ้ามีใน Database)
+  scanInputs.forEach(input => {
+    if (input.dataset.scanned === 'true') {
+      markAsScanned(input, false); // false = ไม่ต้องส่ง API ซ้ำ
+    }
+  });
+  
+  // ========== Global Scanner Setup ==========
+  if (globalInput) {
+    // ตั้งโฟกัสที่กล่องบนสุดเสมอ
+    globalInput.focus();
+    
+    // ปิด Autocomplete เพื่อไม่ให้ Browser จำค่าเก่า
+    globalInput.setAttribute('autocomplete', 'off');
+    
+    // คืนโฟกัสกลับมาเมื่อคลิกที่อื่น (ยกเว้น input, button, link)
+    document.addEventListener('click', function(e) {
+      if (!['INPUT', 'BUTTON', 'A', 'SELECT'].includes(e.target.tagName)) {
+        globalInput.focus();
+      }
+    });
+    
+    // ========== [SECURITY] ป้องกัน Copy-Paste ==========
+    globalInput.addEventListener('paste', function(e) {
+      e.preventDefault(); // ห้ามวาง!
+      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้าม Copy วาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
+      this.value = "";
+      playBeep('error');
+    });
+    
+    globalInput.addEventListener('drop', function(e) {
+      e.preventDefault(); // ห้ามลากข้อความมาวาง!
+      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้ามลากวาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
+      playBeep('error');
+    });
+    
+    // ========== [SECURITY] ป้องกันการคีย์มือ (Speed Check) ==========
+    let lastInputTime = 0;
+    globalInput.addEventListener('input', function(e) {
+      const now = new Date().getTime();
+      
+      // ถ้าไม่ใช่ตัวแรก และพิมพ์ช้ากว่า 50ms = คนพิมพ์แน่นอน
+      if (this.value.length > 1 && (now - lastInputTime) > 50) {
+        this.value = ""; // ลบทิ้งทันที (เงียบๆ ไม่แจ้งเตือนเพราะจะรำคาญ)
+      }
+      
+      lastInputTime = now;
+    });
+    
+    // จัดการการกด Enter ที่กล่องหลัก
+    globalInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        
+        // ตรวจสอบว่าข้อมูลมีความยาวพอสมควร (ไม่ใช่เผลอกด Enter เปล่า)
+        if (this.value.length > 5) {
+          handleGlobalScan(this.value);
+        }
+        
+        this.value = ''; // เคลียร์ค่าเตรียมยิงต่อ
+      }
+    });
+  }
+  
+  // ========== ตัวแปร Timer สำหรับควบคุมเวลาแสดงผล ==========
+  let scanStatusTimer = null;
+
+  // ฟังก์ชันแสดงสถานะ (ปรับขนาด Font ให้เล็กลง - Compact Mode)
+  function showGlobalStatus(htmlContent, type = 'normal') {
+    const statusBox = document.getElementById('globalScanStatus');
+    
+    // 1. ล้าง Timer เก่าทิ้งทันที
+    if (scanStatusTimer) {
+      clearTimeout(scanStatusTimer);
+      scanStatusTimer = null;
+    }
+
+    // 2. Reset styles - Compact Mode
+    statusBox.className = 'alert text-center shadow-sm border py-2';
+    statusBox.style.minHeight = '50px';
+    statusBox.style.display = 'flex';
+    statusBox.style.alignItems = 'center';
+    statusBox.style.justifyContent = 'center';
+    statusBox.style.transition = 'all 0.3s ease';
+
+    // 3. Set Color
+    if (type === 'success') statusBox.classList.add('alert-success');
+    else if (type === 'error') statusBox.classList.add('alert-danger');
+    else if (type === 'warning') statusBox.classList.add('alert-warning');
+    else if (type === 'loading' || type === 'info') statusBox.classList.add('alert-info');
+    else if (type === 'dark') statusBox.classList.add('alert-dark');
+    else statusBox.classList.add('alert-secondary');
+
+    // 4. แทนที่ class h2, h3 ใน htmlContent ให้เล็กลงเป็น h5, h6 อัตโนมัติ
+    let smallHtml = htmlContent
+        .replace(/class="h2/g, 'class="h5')
+        .replace(/class="h3/g, 'class="h6')
+        .replace(/class="h4/g, 'class="h6')
+        .replace(/style="width: 1.5rem; height: 1.5rem;"/g, 'style="width: 1rem; height: 1rem;"');
+
+    statusBox.innerHTML = smallHtml;
+
+    // 5. ตั้งเวลา 10 วินาทีเพื่อกลับสู่สถานะปกติ
+    if (type !== 'normal' && type !== 'loading') {
+      scanStatusTimer = setTimeout(() => {
+        showGlobalStatus('<span class="h6 mb-0 text-muted"><i class="bi bi-circle-fill text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>', 'normal');
+      }, 10000);
+    }
+  }
+
+  // ========== Global Scanner Handler ==========
+  function handleGlobalScan(rawValue) {
+    const cleanValue = extractOrderNumber(rawValue);
+    
+    if (!cleanValue) {
+      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i> ไม่พบเลขออเดอร์</span>', 'warning');
+      playBeep('warning');
+      return;
+    }
+    
+    // แสดงสถานะกำลังตรวจสอบทันทีที่ยิง
+    showGlobalStatus(`<span class="h3 fw-bold"><span class="spinner-border spinner-border-sm me-2" style="width: 1.5rem; height: 1.5rem;"></span> กำลังตรวจสอบ... <strong>${cleanValue}</strong></span>`, 'loading');
+
+    // ค้นหา input ในตารางที่มี data-expected ตรงกับค่าที่ยิง
+    const targetInput = document.querySelector(`.scan-input[data-expected="${cleanValue}"]`);
+    
+    if (targetInput) {
+      // --- เจอในตาราง ---
+      if (targetInput.classList.contains('is-valid')) {
+        showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-exclamation-circle-fill me-2"></i> ออเดอร์ ${cleanValue}<br><small>สแกนไปแล้ว</small></span>`, 'warning');
+        playBeep('warning');
+      } else {
+        markAsScanned(targetInput, true); 
+        // ข้อความใหญ่ ชัดเจน
+        showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-check-circle-fill me-2"></i> สแกนสำเร็จ<br><small>${cleanValue}</small></span>`, 'success');
+        playBeep('success');
+        targetInput.closest('tr').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } else {
+      // --- ไม่เจอในตาราง (เช็ค Server) ---
+      checkOrderStatusOnServer(cleanValue);
+    }
+  }
+
+  // ================= [ เช็ค Server - รองรับ Multi-Status ] =================
+  function checkOrderStatusOnServer(orderId) {
+    fetch('/api/check_order_status', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ order_id: orderId })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.found) {
+        // แปลงรหัสเป็นชื่อไทย
+        const reportMap = {
+          'READY': 'ใบงานคลัง',
+          'LOW_STOCK': 'สินค้าน้อย',
+          'SHORTAGE': 'ไม่มีสินค้า',
+          'NOT_ENOUGH': 'สินค้าไม่พอส่ง',
+          'PACKED': 'แพ็คแล้ว',
+          'CANCELLED': 'ยกเลิก',
+          'ISSUED': 'จ่ายงานแล้ว',
+          'NOT_IN_SBS': 'ยังไม่นำเข้า SBS'
+        };
+
+        // รองรับทั้งแบบใหม่ (statuses) และแบบเก่า (status)
+        let statusList = data.statuses || [data.status];
+        let thaiNames = statusList.map(s => reportMap[s] || s).join(' / ');
+
+        // กำหนดสีและไอคอนตามสถานะ
+        let icon = '<i class="bi bi-check-circle-fill me-2"></i>';
+        let alertType = 'success';
+
+        if (data.color === 'danger') { 
+          icon = '<i class="bi bi-x-circle-fill me-2"></i>'; 
+          alertType = 'error'; 
+        } else if (data.color === 'warning') { 
+          icon = '<i class="bi bi-exclamation-triangle-fill me-2"></i>'; 
+          alertType = 'warning'; 
+        } else if (data.color === 'info') { 
+          icon = '<i class="bi bi-info-circle-fill me-2"></i>'; 
+          alertType = 'info'; 
+        } else if (data.color === 'dark') { 
+          icon = '<i class="bi bi-box-seam-fill me-2"></i>'; 
+          alertType = 'dark'; 
+        }
+
+        // เช็คว่าเป็นสถานะ "จบงาน" หรือไม่ (ยกเลิก / จ่ายแล้ว)
+        let isFinished = statusList.includes('CANCELLED') || statusList.includes('ISSUED');
+
+        // แสดงผลข้อความ
+        showGlobalStatus(`<span class="h4 fw-bold">${icon} ${thaiNames}</span>`, alertType);
+        
+        if (!isFinished && statusList.includes('READY')) {
+          playBeep('warning');
+        } else {
+          playBeep('error');
+        }
+
+      } else {
+        // ไม่เจอเลยจริงๆ ใน Database
+        showGlobalStatus(`<span class="h4 fw-bold"><i class="bi bi-x-circle-fill me-2"></i> ไม่พบข้อมูลในระบบ<br><small>${orderId}</small></span>`, 'error');
+        playBeep('error');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      showGlobalStatus('<span class="h4 fw-bold"><i class="bi bi-wifi-off me-2"></i> การเชื่อมต่อขัดข้อง</span>', 'error');
+      playBeep('error');
+    });
+  }
+  // =======================================================
+  
+  // ========== Individual Input Scanning (Backup - ถ้ายิงที่ตารางโดยตรง) ==========
+  scanInputs.forEach(input => {
+    let scanBuffer = '';
+    let scanTimeout = null;
+    
+    // Note: Individual inputs are now readonly, but keep this for backup
+    // Detect fast typing (barcode scanner behavior)
+    input.addEventListener('keydown', function(e) {
+      const currentTime = new Date().getTime();
+      const timeDiff = currentTime - lastKeyTime;
+      lastKeyTime = currentTime;
+      
+      // If Enter key (scanner sends Enter at the end)
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        validateScan(this);
+        scanBuffer = '';
+        return;
+      }
+      
+      // Prevent manual typing (slow input)
+      if (timeDiff > SCAN_SPEED_THRESHOLD && scanBuffer.length > 0) {
+        // This is manual typing, block it
+        e.preventDefault();
+        this.value = '';
+        scanBuffer = '';
+        
+        // Show warning
+        const statusSpan = this.nextElementSibling;
+        statusSpan.innerHTML = '<small class="text-warning">⚠️ กรแณาใช้เครื่องสแกน</small>';
+        setTimeout(() => {
+          statusSpan.innerHTML = '';
+        }, 2000);
+        return;
+      }
+      
+      scanBuffer += e.key;
+    });
+    
+    // Alternative: listen to paste event (some scanners use paste)
+    input.addEventListener('paste', function(e) {
+      e.preventDefault();
+      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+      this.value = pastedText;
+      setTimeout(() => validateScan(this), 100);
+    });
+    
+    // Clear buffer after delay
+    input.addEventListener('input', function() {
+      clearTimeout(scanTimeout);
+      scanTimeout = setTimeout(() => {
+        scanBuffer = '';
+      }, 1000);
+    });
+  });
+})();
+
+// ========== Helper Functions ==========
+
+// Extract order number from barcode (remove prefixes)
+function extractOrderNumber(rawValue) {
+  let cleanValue = rawValue.trim().toUpperCase();
+  
+  // Remove common prefixes from shipping labels
+  cleanValue = cleanValue.replace(/^(SHOPEE ORDER NO\.?|LAZADA ORDER NUMBER:?|ORDER NO\.?|ORDER:?)\s*/i, '');
+  
+  // Remove whitespace and special characters that might come from barcode
+  cleanValue = cleanValue.replace(/[\s\-_]/g, '');
+  
+  return cleanValue;
+}
+
+// Play beep sound (success, warning, error)
+function playBeep(type) {
+  // Web Audio API for generating beep sounds
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  
+  // Different frequencies for different types
+  const frequencies = {
+    'success': 800,  // High tone
+    'warning': 600,  // Medium tone
+    'error': 300     // Low tone
+  };
+  
+  oscillator.frequency.value = frequencies[type] || 600;
+  oscillator.type = 'sine';
+  
+  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+  
+  oscillator.start(audioContext.currentTime);
+  oscillator.stop(audioContext.currentTime + 0.1);
+}
+
+function validateScan(input) {
+  const scannedValue = input.value.trim();
+  
+  // Extract order number from barcode
+  const cleanValue = extractOrderNumber(scannedValue);
+  const expectedValue = extractOrderNumber(input.dataset.expected);
+  
+  if (cleanValue === expectedValue || scannedValue.toUpperCase().includes(expectedValue)) {
+    // ✅ Correct scan - save to database
+    markAsScanned(input, true); // true = ส่ง API บันทึกลง DB
+    
+    // Auto-focus next input
+    setTimeout(() => {
+      const nextInput = getNextScanInput(input);
+      if (nextInput) {
+        nextInput.focus();
+        nextInput.select();
+      }
+    }, 300);
+    
+  } else {
+    // ❌ Incorrect scan
+    const statusSpan = input.nextElementSibling;
+    input.classList.remove('is-valid');
+    input.classList.add('is-invalid');
+    input.style.borderColor = '#dc3545';
+    statusSpan.innerHTML = '<small class="text-danger"><strong>✗ ผิดพลาด!</strong></small>';
+    
+    // Play error sound
+    playBeep('error');
+    
+    // Clear input for rescan
+    setTimeout(() => {
+      input.value = '';
+      input.focus();
+    }, 500);
+  }
+}
+
+function markAsScanned(input, syncToServer) {
+  const statusSpan = input.nextElementSibling;
+  const printSymbol = input.parentElement.querySelector('.scan-print-symbol');
+  
+  // แสดงผลบนหน้าจอ
+  input.value = input.dataset.expected;
+  input.classList.remove('is-invalid');
+  input.classList.add('is-valid');
+  input.style.borderColor = '#28a745';
+  input.style.backgroundColor = '#d4edda';
+  input.setAttribute('readonly', 'readonly');
+  
+  if (statusSpan) {
+    statusSpan.innerHTML = '<small class="text-success"><strong>✓ ถูกต้อง</strong></small>';
+  }
+  
+  // จัดการหน้าตาตอนพิมพ์ (ใส่ Class ให้สีเข้ม)
+  if (printSymbol) {
+    printSymbol.innerHTML = '✓';
+    printSymbol.classList.add('scanned-print');
+  }
+  
+  // บันทึกลง Server (Database)
+  if (syncToServer) {
+    fetch('/api/scan_order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ order_id: input.dataset.expected })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        // Update data attribute
+        input.dataset.scanned = 'true';
+        playBeep('success'); // Success sound
+        
+        // อัปเดต Dashboard ทันที
+        updateScanStats();
+      } else {
+        console.error('Save scan failed:', d.error);
+        alert('บันทึกไม่สำเร็จ: ' + (d.error || 'Unknown error'));
+      }
+    })
+    .catch(err => {
+      console.error('Network error:', err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    });
+  } else {
+    // ถ้าไม่ sync ก็อัปเดต Dashboard เลย
+    updateScanStats();
+  }
+}
+
+function getNextScanInput(currentInput) {
+  const allInputs = Array.from(document.querySelectorAll('.scan-input'));
+  const visibleInputs = allInputs.filter(input => {
+    const row = input.closest('tr');
+    return row && row.style.display !== 'none';
+  });
+  
+  const index = visibleInputs.indexOf(currentInput);
+  if (index > -1 && index < visibleInputs.length - 1) {
+    return visibleInputs[index + 1];
+  }
+  return null;
+}
+
+// Simple beep sound for feedback
+function playBeep(frequency, duration) {
+  try {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + duration / 1000);
+  } catch (e) {
+    // Audio not supported, ignore
+  }
+}
+</script>
+
+{% endblock %}

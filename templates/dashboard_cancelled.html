@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        🚫
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">Dashboard — Order ยกเลิก</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          รายการออเดอร์ที่ยกเลิกแล้ว
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-3">
+    <label class="form-label">แพลตฟอร์ม</label>
+    <select class="form-select" name="platform">
+      <option value="">— ทั้งหมด —</option>
+      {% for p in platforms %}
+        <option value="{{ p }}" {% if platform_sel==p %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-4">
+    <label class="form-label">ชื่อร้าน</label>
+    <select class="form-select" name="shop_id">
+      <option value="">— ทั้งหมด —</option>
+      {% for s in shops %}
+        <option value="{{ s.id }}" {% if shop_sel and s.id==shop_sel %}selected{% endif %}>
+          {{ s.platform }} • {{ s.name }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">เลข Order</label>
+    <input name="q" value="{{ q }}" class="form-control" placeholder="ค้นหาด้วยเลข Order">
+  </div>
+  <div class="col-md-2 d-grid">
+    <label class="form-label">&nbsp;</label>
+    <button class="btn btn-outline-primary">ค้นหา</button>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table table-bordered table-striped align-middle">
+    <thead class="table-light">
+      <tr>
+        <th style="width:60px;">#</th>
+        <th style="width:160px;">แพลตฟอร์ม</th>
+        <th>ชื่อร้าน</th>
+        <th style="width:240px;">เลข Order</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ row.platform or "-" }}</td>
+        <td>{{ row.shop_name or "-" }}</td>
+        <td class="text-danger fw-semibold">{{ row.order_id }}</td>
+      </tr>
+      {% endfor %}
+      {% if not rows %}
+        <tr><td colspan="4" class="text-center text-muted">ไม่มีข้อมูล</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

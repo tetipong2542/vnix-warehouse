@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        📊
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">นำเข้า: สต็อก</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          Sabuy Soft
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<!-- Tabs Navigation -->
+<ul class="nav nav-tabs mb-4" id="importTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="file-tab" data-bs-toggle="tab" data-bs-target="#file-import" type="button" role="tab">
+      <i class="bi bi-file-earmark-arrow-up"></i> นำเข้าจากไฟล์
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api-import" type="button" role="tab">
+      <i class="bi bi-cloud-arrow-down"></i> นำเข้าจาก API
+    </button>
+  </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="importTabContent">
+
+  <!-- File Import Tab -->
+  <div class="tab-pane fade show active" id="file-import" role="tabpanel">
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">ไฟล์ Excel</label>
+        <input type="file" name="file" class="form-control" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary">
+          <i class="bi bi-upload"></i> นำเข้า
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- API Import Tab -->
+  <div class="tab-pane fade" id="api-import" role="tabpanel">
+    <form id="apiImportForm" class="row g-3">
+
+      <!-- Saved API Configs (Stock) -->
+      <div class="col-md-12">
+        <div class="card bg-light">
+          <div class="card-body">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-8">
+                <label class="form-label">
+                  <i class="bi bi-bookmark-star"></i> โหลด Stock API Config ที่บันทึกไว้
+                </label>
+                <select id="savedConfigSelect" class="form-select">
+                  <option value="">-- เลือก Stock Config ที่บันทึกไว้ --</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <button type="button" class="btn btn-info w-100" id="btnManageConfigs">
+                  <i class="bi bi-gear"></i> จัดการ
+                </button>
+              </div>
+              <div class="col-md-2">
+                <button type="button" class="btn btn-success w-100" id="btnSaveConfig">
+                  <i class="bi bi-save"></i> บันทึก
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hidden fields for compatibility (not required) -->
+      <input type="hidden" id="apiPlatform" value="">
+      <input type="hidden" id="apiShopName" value="">
+
+      <!-- API URL -->
+      <div class="col-md-12">
+        <label class="form-label">API URL <span class="text-danger">*</span></label>
+        <input type="url" name="api_url" id="apiUrl" class="form-control"
+               placeholder="https://api.example.com/stock" required>
+        <small class="text-muted">ระบุ URL ของ API endpoint ที่ต้องการดึงข้อมูล</small>
+      </div>
+
+      <!-- Data Path -->
+      <div class="col-md-6">
+        <label class="form-label">Data Path <span class="text-danger">*</span></label>
+        <input type="text" name="data_path" id="dataPath" class="form-control"
+               placeholder="data.items" required>
+        <small class="text-muted">ระบุตำแหน่งของ array ใน JSON response (เช่น data.items, stock)</small>
+      </div>
+
+      <!-- API Key / Token -->
+      <div class="col-md-6">
+        <label class="form-label">API Key / Token</label>
+        <input type="text" name="api_key" id="apiKey" class="form-control"
+               placeholder="Bearer YOUR_API_KEY">
+        <small class="text-muted">กรอกถ้า API ต้องการ authentication</small>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="col-12">
+        <div class="btn-group" role="group">
+          <button type="button" class="btn btn-primary" id="btnFetchPreview">
+            <i class="bi bi-cloud-download"></i> ดึงข้อมูลและ Preview
+          </button>
+          <button type="button" class="btn btn-outline-secondary" id="btnPreviewCache">
+            <i class="bi bi-clock-history"></i> Preview Cache (6 ชม.)
+          </button>
+          <a href="/import/stock" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> กลับ
+          </a>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="previewModalLabel">
+          <i class="bi bi-eye"></i> Preview ข้อมูล API
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Loading State -->
+        <div id="previewLoading" class="text-center py-5" style="display: none;">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2">กำลังดึงข้อมูลจาก API...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="previewError" class="alert alert-danger" style="display: none;">
+          <i class="bi bi-exclamation-triangle"></i> <span id="previewErrorMessage"></span>
+        </div>
+
+        <!-- Content -->
+        <div id="previewContent" style="display: none;">
+          <div class="alert alert-info hide-dev">
+            <strong>Field Mapping:</strong>
+            <div id="mappingInfo" class="mt-2"></div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered">
+              <thead class="table-light">
+                <tr id="previewTableHeader"></tr>
+              </thead>
+              <tbody id="previewTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="text-muted" id="previewSummary"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-circle"></i> ยกเลิก
+        </button>
+        <button type="button" class="btn btn-primary" id="btnConfirmImport">
+          <i class="bi bi-check-circle"></i> Confirm และนำเข้าข้อมูล
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Mapping Modal -->
+<div class="modal fade" id="editMappingModal" tabindex="-1" aria-labelledby="editMappingModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h5 class="modal-title" id="editMappingModalLabel">
+          <i class="bi bi-pencil"></i> แก้ไข Field Mapping
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">จับคู่ฟิลด์จาก API กับฟิลด์ในระบบ WMS</p>
+        <form id="mappingForm">
+          <div class="row g-3" id="mappingFormFields"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" id="btnSaveMapping">บันทึก Mapping</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Config Management Modal -->
+<div class="modal fade" id="manageConfigsModal" tabindex="-1" aria-labelledby="manageConfigsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title" id="manageConfigsModalLabel">
+          <i class="bi bi-gear"></i> จัดการ API Configurations
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Loading State -->
+        <div id="configsLoading" class="text-center py-5" style="display: none;">
+          <div class="spinner-border text-info" role="status">
+            <span class="visually-hidden">กำลังโหลด...</span>
+          </div>
+          <p class="mt-2 text-muted">กำลังโหลด Configs...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="configsError" class="alert alert-danger" style="display: none;">
+          <i class="bi bi-exclamation-triangle"></i> <span id="configsErrorMessage"></span>
+        </div>
+
+        <!-- Configs Table -->
+        <div id="configsTableContainer" style="display: none;">
+          <div class="table-responsive">
+            <table class="table table-hover table-bordered">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 25%;">ชื่อ Config</th>
+                  <th style="width: 12%;">Platform</th>
+                  <th style="width: 30%;">API URL</th>
+                  <th style="width: 15%;">Data Path</th>
+                  <th style="width: 18%;" class="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="configsTableBody">
+                <!-- Rows will be populated by JavaScript -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Summary -->
+          <div class="text-end text-muted mt-2">
+            <small>จำนวนทั้งหมด: <strong id="configsCount">0</strong> configs</small>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="configsEmpty" class="text-center py-5" style="display: none;">
+          <i class="bi bi-inbox" style="font-size: 3rem; color: #ccc;"></i>
+          <p class="text-muted mt-3">ยังไม่มี Config ที่บันทึกไว้</p>
+          <p class="text-muted">กรุณากรอกข้อมูล API แล้วคลิก "บันทึก Config นี้"</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-circle"></i> ปิด
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- View Config Detail Modal -->
+<div class="modal fade" id="viewConfigModal" tabindex="-1" aria-labelledby="viewConfigModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="viewConfigModalLabel">
+          <i class="bi bi-info-circle"></i> รายละเอียด Config
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3" id="viewConfigContent">
+          <!-- Content will be populated by JavaScript -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteConfigModal" tabindex="-1" aria-labelledby="deleteConfigModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="deleteConfigModalLabel">
+          <i class="bi bi-exclamation-triangle"></i> ยืนยันการลบ Config
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">คุณต้องการลบ Config นี้?</p>
+        <div class="card bg-light">
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-12">
+                <strong>ชื่อ Config:</strong>
+                <span id="deleteConfigName" class="text-primary"></span>
+              </div>
+              <div class="col-6">
+                <strong>Platform:</strong>
+                <span id="deleteConfigPlatform"></span>
+              </div>
+              <div class="col-6">
+                <strong>Shop ID:</strong>
+                <span id="deleteConfigShopId"></span>
+              </div>
+              <div class="col-12">
+                <strong>API URL:</strong>
+                <div class="text-truncate text-muted" id="deleteConfigUrl"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="alert alert-warning mt-3 mb-0">
+          <i class="bi bi-exclamation-triangle"></i>
+          <strong>คำเตือน:</strong> การลบจะไม่สามารถกู้คืนได้
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-circle"></i> ยกเลิก
+        </button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete">
+          <i class="bi bi-trash"></i> ลบ Config
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='api_import_common.js') }}"></script>
+<script>
+  // Initialize API Import for Stock after DOM is ready
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 DOMContentLoaded - Initializing Stock API Import...');
+
+    window.apiImportCommon.init({
+      moduleType: 'stock', // แยก config จาก orders
+      apiEndpoint: '/import/stock/api',
+      displayFields: ['sku', 'quantity'], // แสดงเฉพาะ รหัสสินค้า และ คงเหลือ
+      fieldLabels: {
+        'sku': 'รหัสสินค้า',
+        'product_name': 'ชื่อสินค้า',
+        'item_name': 'ชื่อสินค้า',
+        'quantity': 'คงเหลือ',
+        'qty': 'คงเหลือ'
+      },
+      wmsFields: [
+        { key: 'sku', label: 'รหัสสินค้า' },
+        { key: 'product_name', label: 'ชื่อสินค้า' },
+        { key: 'item_name', label: 'ชื่อสินค้า (สำรอง)' },
+        { key: 'quantity', label: 'คงเหลือ' },
+        { key: 'qty', label: 'คงเหลือ (สำรอง)' }
+      ],
+      requirePlatform: false, // Stock ไม่ต้องการ platform
+      requireShopName: false, // Stock ไม่ต้องการ shop name
+      redirectUrl: '/import/stock'
+    });
+  });
+</script>
+
+{% endblock %}

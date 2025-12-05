@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row g-3 align-items-end mb-3">
+  <div class="col-auto">
+    <div class="page-title d-flex align-items-center">
+      <div class="page-title-icon me-3">
+        ❌
+      </div>
+      <div class="d-flex align-items-baseline flex-wrap">
+        <div class="page-title-main me-3">นำเข้า Orders ยกเลิก</div>
+        <div class="text-muted" style="font-size: 1rem; border-left: 2px solid #ccc; padding-left: 12px;">
+          Excel/CSV
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr class="mb-4">
+
+<div class="alert alert-info">
+  <div><strong>วิธีใช้งานย่อ:</strong> ดาวน์โหลดเทมเพลต &rarr; เติม <code>order_no</code> ทีละบรรทัด &rarr; อัปโหลด</div>
+  <div>ระบบจะถือว่าออเดอร์ที่เลขชนกับข้อมูลในระบบเป็น <span class="fw-bold text-danger">ยกเลิกแล้ว</span> และจะถูกตัดออกจากการรับงาน/พิมพ์/จ่ายงานอัตโนมัติ</div>
+</div>
+
+<div class="d-flex gap-2 mb-3">
+  <a class="btn btn-outline-primary" href="{{ url_for('import_cancel_template') }}">ดาวน์โหลด Template (Excel)</a>
+  <a class="btn btn-outline-secondary" href="{{ url_for('import_cancel_template', format='csv') }}">ดาวน์โหลด Template (CSV)</a>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">เลือกไฟล์ (.xlsx .xls .csv)</label>
+        <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.csv" required>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary w-100">อัปโหลด</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if result %}
+<div class="card">
+  <div class="card-body">
+    <h6 class="mb-3">สรุปผลการนำเข้า</h6>
+    <div class="row g-3">
+      <div class="col-md-3"><div class="p-2 bg-light rounded">จำนวนเลขในไฟล์: <strong>{{ result.total_in_file }}</strong></div></div>
+      <div class="col-md-3"><div class="p-2 bg-light rounded">พบในระบบ: <strong>{{ result.matched_in_system }}</strong></div></div>
+      <div class="col-md-3"><div class="p-2 bg-light rounded">เพิ่มเป็นยกเลิก: <strong class="text-success">{{ result.inserted }}</strong></div></div>
+      <div class="col-md-3"><div class="p-2 bg-light rounded">เป็นยกเลิกอยู่แล้ว: <strong class="text-muted">{{ result.already_cancelled }}</strong></div></div>
+    </div>
+
+    {% if result.not_found %}
+    <div class="mt-3">
+      <div class="small text-muted">เลขที่ไม่พบในระบบ (ตัวอย่าง):</div>
+      <code class="d-block text-wrap">{{ result.not_found|join(", ") }}</code>
+    </div>
+    {% endif %}
+
+    {% if result.preview %}
+    <div class="mt-3">
+      <div class="small text-muted">ตัวอย่างจากไฟล์:</div>
+      <code class="d-block text-wrap">{{ result.preview|join(", ") }}</code>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
