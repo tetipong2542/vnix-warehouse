@@ -1,5 +1,4 @@
-
-{% extends "base.html" %}
+ {% extends "base.html" %}
 {% block content %}
 
 <div class="row g-3 align-items-end mb-3">
@@ -21,6 +20,17 @@
 
 <style>
   footer { display: none !important; }
+  
+  /* Keyboard shortcut styling */
+  kbd {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.85em;
+    font-family: monospace;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+  }
   @media print {
     footer { display: none !important; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -221,26 +231,34 @@
   </form>
 
   <!-- กล่องค้นหาออเดอร์ (Global Search) -->
-  <div class="d-print-none mb-3">
-    <form method="get" action="{{ url_for('warehouse_printed_history') if is_history_view else url_for('print_warehouse') }}" class="d-flex gap-2 align-items-center">
-      <div class="input-group" style="max-width: 600px;">
-        <span class="input-group-text bg-white"><i class="bi bi-search" style="font-size: 18px;"></i></span>
-        <input type="text" name="q" class="form-control" placeholder="🔍 ค้นหาเลข Order (ค้นหาทั้งหมด ไม่จำกัดวันที่)" value="{{ q or '' }}" style="font-size: 15px;">
-        <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> ค้นหา</button>
+  <div class="d-print-none mb-3" style="width: 60%;">
+    <div class="card">
+      <div class="card-body p-3">
+        <form method="get" action="{{ url_for('warehouse_printed_history') if is_history_view else url_for('print_warehouse') }}" class="d-flex gap-2 align-items-center">
+          <div class="input-group flex-grow-1">
+            <span class="input-group-text bg-white border-end-0">
+              <i class="bi bi-search" style="font-size: 18px;"></i>
+            </span>
+            <input type="text" name="q" class="form-control border-start-0 ps-0" placeholder="🔍 ค้นหาเลข Order (ค้นหาทั้งหมด ไม่จำกัดวันที่)" value="{{ q or '' }}" style="font-size: 15px;">
+            <button class="btn btn-primary px-4" type="submit">
+              <i class="bi bi-search me-1"></i> ค้นหา
+            </button>
+          </div>
+          
+          {% if q %}
+            <a href="{{ url_for('warehouse_printed_history', reset='today') if is_history_view else url_for('print_warehouse', reset='all') }}" class="btn btn-outline-secondary" title="ล้างคำค้นหา">
+              <i class="bi bi-x-lg"></i> ล้าง
+            </a>
+          {% endif %}
+        </form>
+        
+        {% if q %}
+          <div class="alert alert-info mt-3 mb-0">
+            <i class="bi bi-info-circle"></i> กำลังค้นหา: <strong>{{ q }}</strong> {% if is_history_view %}(ค้นหาในประวัติการพิมพ์ทั้งหมด){% else %}(ค้นหาทั้งหมดไม่จำกัดวันที่){% endif %}
+          </div>
+        {% endif %}
       </div>
-      
-      {% if q %}
-        <a href="{{ url_for('warehouse_printed_history', reset='today') if is_history_view else url_for('print_warehouse', reset='all') }}" class="btn btn-outline-secondary" title="ล้างคำค้นหา">
-          <i class="bi bi-x-lg"></i> ล้าง
-        </a>
-      {% endif %}
-    </form>
-    
-    {% if q %}
-      <div class="alert alert-info mt-2 mb-0">
-        <i class="bi bi-info-circle"></i> กำลังค้นหา: <strong>{{ q }}</strong> {% if is_history_view %}(ค้นหาในประวัติการพิมพ์ทั้งหมด){% else %}(ค้นหาทั้งหมดไม่จำกัดวันที่){% endif %}
-      </div>
-    {% endif %}
+    </div>
   </div>
 
   <!-- กล่องสแกนหลัก (Global Scanner) - Compact Mode -->
@@ -269,6 +287,7 @@
 
     <div class="text-center text-muted small mt-1" style="font-size: 0.8rem;">
       <i class="bi bi-info-circle me-1"></i> ใช้เครื่องสแกนยิงที่กล่องด้านบน
+      <br>
     </div>
   </div>
 
@@ -861,35 +880,74 @@ function setTodayWarehouse() {
     
     // คืนโฟกัสกลับมาเมื่อคลิกที่อื่น (ยกเว้น input, button, link)
     document.addEventListener('click', function(e) {
+      if (manualInputEnabled) return; // ไม่แย่ง focus เมื่อเปิดโหมด manual
       if (!['INPUT', 'BUTTON', 'A', 'SELECT'].includes(e.target.tagName)) {
         globalInput.focus();
       }
     });
     
-    // ========== [SECURITY] ป้องกัน Copy-Paste ==========
+    let manualInputEnabled = false;
+    let manualInputTimer = null;
+    
+    function enableManualInput(duration = 120000) {
+      manualInputEnabled = true;
+      globalInput.style.backgroundColor = '#fff3cd';
+      globalInput.style.borderColor = '#ffc107';
+      const minutes = Math.floor(duration / 60000);
+      showGlobalStatus(`<span class="h6 fw-bold text-warning">Manual input enabled for ${minutes} min</span>`, 'warning');
+      if (manualInputTimer) clearTimeout(manualInputTimer);
+      manualInputTimer = setTimeout(() => {
+        disableManualInput();
+      }, duration);
+    }
+    
+    function disableManualInput() {
+      manualInputEnabled = false;
+      globalInput.style.backgroundColor = '';
+      globalInput.style.borderColor = '';
+      showGlobalStatus('<span class="h6 mb-0 text-muted">Ready</span>', 'normal');
+      if (manualInputTimer) {
+        clearTimeout(manualInputTimer);
+        manualInputTimer = null;
+      }
+    }
+    
+    document.addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (manualInputEnabled) {
+          disableManualInput();
+          alert('Locked');
+        } else {
+          enableManualInput(120000);
+          alert('Unlocked for 2 minutes');
+        }
+      }
+    });
     globalInput.addEventListener('paste', function(e) {
-      e.preventDefault(); // ห้ามวาง!
-      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้าม Copy วาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
-      this.value = "";
-      playBeep('error');
+      if (!manualInputEnabled) {
+        e.preventDefault();
+        showGlobalStatus('<i class="bi bi-shield-fill-exclamation me-2"><span class="h6 fw-bold"> ห้าม Copy วาง! ใช้เครื่องสแกนเท่านั้น</span></i>', 'error');
+        this.value = "";
+        playBeep('error');
+      }
     });
     
     globalInput.addEventListener('drop', function(e) {
-      e.preventDefault(); // ห้ามลากข้อความมาวาง!
-      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้ามลากวาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
-      playBeep('error');
+      if (!manualInputEnabled) {
+        e.preventDefault();
+        showGlobalStatus('<span class="h6 fw-bold">Drop not allowed</span>', 'error');
+        playBeep('error');
+      }
     });
     
-    // ========== [SECURITY] ป้องกันการคีย์มือ (Speed Check) ==========
     let lastInputTime = 0;
     globalInput.addEventListener('input', function(e) {
+      if (manualInputEnabled) return;
       const now = new Date().getTime();
-      
-      // ถ้าไม่ใช่ตัวแรก และพิมพ์ช้ากว่า 50ms = คนพิมพ์แน่นอน
       if (this.value.length > 1 && (now - lastInputTime) > 50) {
-        this.value = ""; // ลบทิ้งทันที (เงียบๆ ไม่แจ้งเตือนเพราะจะรำคาญ)
+        this.value = "";
       }
-      
       lastInputTime = now;
     });
     
@@ -1285,6 +1343,8 @@ function playBeep(frequency, duration) {
     // Audio not supported, ignore
   }
 }
+
+// Print toggle removed - printing is always enabled on this page
 </script>
 
 {% endblock %}

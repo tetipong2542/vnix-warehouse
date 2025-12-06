@@ -70,6 +70,21 @@ class APIConfig(db.Model):
     def __repr__(self):
         return f"<APIConfig {self.config_name}>"
 
+class PrintSetting(db.Model):
+    """Model for storing system print settings"""
+    __tablename__ = "print_settings"
+    id = db.Column(db.Integer, primary_key=True)
+    setting_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    setting_value = db.Column(db.String(255), nullable=False)
+    updated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ))
+    
+    # Relationships
+    updated_by = db.relationship("User", foreign_keys=[updated_by_user_id])
+    
+    def __repr__(self):
+        return f"<PrintSetting {self.setting_key}={self.setting_value}>"
+
 class OrderLine(db.Model):
     __tablename__ = "order_lines"
     id = db.Column(db.Integer, primary_key=True)

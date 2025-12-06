@@ -20,7 +20,7 @@ from utils import (
     now_thai, to_thai_be, to_be_date_str, TH_TZ, current_be_year,
     normalize_platform, sla_text, compute_due_date
 )
-from models import db, Shop, Product, Stock, Sales, OrderLine, User, APIConfig
+from models import db, Shop, Product, Stock, Sales, OrderLine, User, APIConfig, PrintSetting
 from importers import import_products, import_stock, import_sales, import_orders
 from allocation import compute_allocation
 
@@ -193,12 +193,36 @@ def create_app():
             app.logger.warning(f"[deleted_orders] ensure table failed: {e}")
     # =========[ /NEW ]=========
 
+    # =========[ NEW ]=========  ตารางเก็บ Print Settings
+    def _ensure_print_settings_table():
+        """สร้างตาราง print_settings และ insert ค่า default"""
+        try:
+            PrintSetting.__table__.create(bind=db.engine, checkfirst=True)
+            
+            # ตรวจสอบว่ามี default setting หรือยัง
+            existing = PrintSetting.query.filter_by(setting_key='warehouse_print_enabled').first()
+            if not existing:
+                # สร้าง default setting (เปิดการพิมพ์)
+                default_setting = PrintSetting(
+                    setting_key='warehouse_print_enabled',
+                    setting_value='true',
+                    updated_by_user_id=None,
+                    updated_at=datetime.now(TH_TZ)
+                )
+                db.session.add(default_setting)
+                db.session.commit()
+                app.logger.info("[print_settings] Created default warehouse_print_enabled setting")
+        except Exception as e:
+            app.logger.warning(f"[print_settings] ensure table failed: {e}")
+    # =========[ /NEW ]=========
+
     with app.app_context():
         db.create_all()
         _ensure_orderline_print_columns()
         _migrate_shops_unique_to_platform_name()
         _ensure_issue_table()  # <<< NEW
         _ensure_deleted_table()  # <<< NEW สำหรับ Soft Delete
+        _ensure_print_settings_table()  # <<< NEW สำหรับ Print Toggle
         # bootstrap admin
         if User.query.count() == 0:
             admin = User(
@@ -2154,6 +2178,381 @@ def create_app():
             db.session.rollback()
             return jsonify({'error': f'Import failed: {str(e)}'}), 500
 
+    # =========[ CANCEL ORDERS API IMPORT ]=========
+    @app.route("/import/cancel/api/preview", methods=["POST"])
+    @login_required
+    def cancel_api_preview():
+        """Fetch cancelled orders data from API and return preview"""
+        try:
+            req_data = request.get_json()
+            api_url = req_data.get('api_url')
+            data_path = req_data.get('data_path', '')
+            api_key = req_data.get('api_key', '')
+            use_cache = req_data.get('use_cache', False)
+
+            if not api_url:
+                return jsonify({'error': 'API URL is required'}), 400
+
+            # Check cache
+            cache_key = get_cache_key(api_url, data_path)
+            from_cache = False
+            cache_expires = None
+
+            if use_cache:
+                cached = get_api_cache(cache_key)
+                if cached:
+                    api_data = cached['data']
+                    from_cache = True
+                    cache_expires = cached['expires_at']
+
+            # Fetch from API if not cached
+            if not use_cache or not from_cache:
+                headers = {}
+                if api_key:
+                    if api_key.lower().startswith('bearer '):
+                        headers['Authorization'] = api_key
+                    else:
+                        headers['Authorization'] = f'Bearer {api_key}'
+
+                response = requests.get(api_url, headers=headers, timeout=30)
+                response.raise_for_status()
+
+                json_data = response.json()
+
+                # Extract data using path
+                api_data = get_nested_value(json_data, data_path)
+
+                if not isinstance(api_data, list):
+                    return jsonify({'error': f'Data path "{data_path}" does not point to an array'}), 400
+
+                if len(api_data) == 0:
+                    return jsonify({'error': 'API returned empty data'}), 400
+
+                # Cache the data
+                set_api_cache(cache_key, api_data)
+                cached = get_api_cache(cache_key)
+                cache_expires = cached['expires_at'] if cached else None
+
+            # Auto-detect mapping for cancel orders
+            sample = api_data[0] if api_data else {}
+            mapping = auto_detect_mapping(sample)
+
+            # Map data
+            mapped_data = map_api_data(api_data, mapping)
+
+            # Return preview
+            preview = mapped_data[:10]
+
+            return jsonify({
+                'success': True,
+                'data': api_data,
+                'mapping': mapping,
+                'preview': preview,
+                'total_rows': len(api_data),
+                'from_cache': from_cache,
+                'cache_expires': cache_expires
+            })
+
+        except requests.exceptions.RequestException as e:
+            return jsonify({'error': f'API request failed: {str(e)}'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Error: {str(e)}'}), 500
+
+    @app.route("/import/cancel/api/import", methods=["POST"])
+    @login_required
+    def cancel_api_import():
+        """Import cancelled orders data from API"""
+        try:
+            _ensure_cancel_table()
+            cu = current_user()
+
+            req_data = request.get_json()
+            data = req_data.get('data', [])
+
+            if not data:
+                return jsonify({'error': 'No data to import'}), 400
+
+            # Convert to DataFrame
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                return jsonify({'error': 'Empty data'}), 400
+
+            # Extract order IDs from DataFrame
+            # Try multiple column names for order_no
+            order_col = None
+            for col in ['order_no', 'order_id', 'order_number', 'เลขที่ออเดอร์']:
+                if col in df.columns:
+                    order_col = col
+                    break
+
+            if not order_col:
+                return jsonify({'error': 'No order_no column found in data'}), 400
+
+            order_ids = df[order_col].astype(str).str.strip().tolist()
+            order_ids = [s for s in order_ids if s and s.strip()]
+            order_ids = list(dict.fromkeys(order_ids))  # unique
+
+            # Check which orders exist in OrderLine
+            exists_set = {
+                r[0] for r in db.session.query(OrderLine.order_id)
+                .filter(OrderLine.order_id.in_(order_ids)).distinct().all()
+            }
+
+            # Add to cancelled_orders table
+            inserted = 0
+            skipped_already = 0
+            now = datetime.utcnow()
+
+            for oid in exists_set:
+                existed = CancelledOrder.query.filter_by(order_id=oid).first()
+                if existed:
+                    skipped_already += 1
+                    continue
+                db.session.add(CancelledOrder(
+                    order_id=oid,
+                    imported_at=now,
+                    imported_by_user_id=cu.id
+                ))
+                inserted += 1
+
+            db.session.commit()
+
+            return jsonify({
+                'success': True,
+                'imported': inserted,
+                'skipped': skipped_already,
+                'total_in_file': len(order_ids),
+                'matched_in_system': len(exists_set),
+                'message': f'Successfully marked {inserted} orders as cancelled (skipped {skipped_already} duplicates)'
+            })
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+    # =========[ PRODUCTS API IMPORT ]=========
+    @app.route("/import/products/api/preview", methods=["POST"])
+    @login_required
+    def products_api_preview():
+        """Fetch products data from API and return preview"""
+        try:
+            req_data = request.get_json()
+            api_url = req_data.get('api_url')
+            data_path = req_data.get('data_path', '')
+            api_key = req_data.get('api_key', '')
+            use_cache = req_data.get('use_cache', False)
+
+            if not api_url:
+                return jsonify({'error': 'API URL is required'}), 400
+
+            # Check cache
+            cache_key = get_cache_key(api_url, data_path)
+            from_cache = False
+            cache_expires = None
+
+            if use_cache:
+                cached = get_api_cache(cache_key)
+                if cached:
+                    api_data = cached['data']
+                    from_cache = True
+                    cache_expires = cached['expires_at']
+
+            # Fetch from API if not cached
+            if not use_cache or not from_cache:
+                headers = {}
+                if api_key:
+                    if api_key.lower().startswith('bearer '):
+                        headers['Authorization'] = api_key
+                    else:
+                        headers['Authorization'] = f'Bearer {api_key}'
+
+                response = requests.get(api_url, headers=headers, timeout=30)
+                response.raise_for_status()
+
+                json_data = response.json()
+
+                # Extract data using path
+                api_data = get_nested_value(json_data, data_path)
+
+                if not isinstance(api_data, list):
+                    return jsonify({'error': f'Data path "{data_path}" does not point to an array'}), 400
+
+                if len(api_data) == 0:
+                    return jsonify({'error': 'API returned empty data'}), 400
+
+                # Cache the data
+                set_api_cache(cache_key, api_data)
+                cached = get_api_cache(cache_key)
+                cache_expires = cached['expires_at'] if cached else None
+
+            # Auto-detect mapping for products
+            sample = api_data[0] if api_data else {}
+            mapping = auto_detect_mapping(sample)
+
+            # Map data
+            mapped_data = map_api_data(api_data, mapping)
+
+            # Return preview
+            preview = mapped_data[:10]
+
+            return jsonify({
+                'success': True,
+                'data': api_data,
+                'mapping': mapping,
+                'preview': preview,
+                'total_rows': len(api_data),
+                'from_cache': from_cache,
+                'cache_expires': cache_expires
+            })
+
+        except requests.exceptions.RequestException as e:
+            return jsonify({'error': f'API request failed: {str(e)}'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Error: {str(e)}'}), 500
+
+    @app.route("/import/products/api/import", methods=["POST"])
+    @login_required
+    def products_api_import():
+        """Import products data from API"""
+        try:
+            req_data = request.get_json()
+            data = req_data.get('data', [])
+
+            if not data:
+                return jsonify({'error': 'No data to import'}), 400
+
+            # Convert to DataFrame
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                return jsonify({'error': 'Empty data'}), 400
+
+            # Import products using the import_products function from importers.py
+            from importers import import_products
+            imported_count = import_products(df)
+
+            return jsonify({
+                'success': True,
+                'imported': imported_count,
+                'message': f'Successfully imported {imported_count} products'
+            })
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
+    # =========[ SALES API IMPORT ]=========
+    @app.route("/import/sales/api/preview", methods=["POST"])
+    @login_required
+    def sales_api_preview():
+        """Fetch sales data from API and return preview"""
+        try:
+            req_data = request.get_json()
+            api_url = req_data.get('api_url')
+            data_path = req_data.get('data_path', '')
+            api_key = req_data.get('api_key', '')
+            use_cache = req_data.get('use_cache', False)
+
+            if not api_url:
+                return jsonify({'error': 'API URL is required'}), 400
+
+            # Check cache
+            cache_key = get_cache_key(api_url, data_path)
+            from_cache = False
+            cache_expires = None
+
+            if use_cache:
+                cached = get_api_cache(cache_key)
+                if cached:
+                    api_data = cached['data']
+                    from_cache = True
+                    cache_expires = cached['expires_at']
+
+            # Fetch from API if not cached
+            if not use_cache or not from_cache:
+                headers = {}
+                if api_key:
+                    if api_key.lower().startswith('bearer '):
+                        headers['Authorization'] = api_key
+                    else:
+                        headers['Authorization'] = f'Bearer {api_key}'
+
+                response = requests.get(api_url, headers=headers, timeout=30)
+                response.raise_for_status()
+
+                json_data = response.json()
+
+                # Extract data using path
+                api_data = get_nested_value(json_data, data_path)
+
+                if not isinstance(api_data, list):
+                    return jsonify({'error': f'Data path "{data_path}" does not point to an array'}), 400
+
+                if len(api_data) == 0:
+                    return jsonify({'error': 'API returned empty data'}), 400
+
+                # Cache the data
+                set_api_cache(cache_key, api_data)
+                cached = get_api_cache(cache_key)
+                cache_expires = cached['expires_at'] if cached else None
+
+            # Auto-detect mapping for sales
+            sample = api_data[0] if api_data else {}
+            mapping = auto_detect_mapping(sample)
+
+            # Map data
+            mapped_data = map_api_data(api_data, mapping)
+
+            # Return preview
+            preview = mapped_data[:10]
+
+            return jsonify({
+                'success': True,
+                'data': api_data,
+                'mapping': mapping,
+                'preview': preview,
+                'total_rows': len(api_data),
+                'from_cache': from_cache,
+                'cache_expires': cache_expires
+            })
+
+        except requests.exceptions.RequestException as e:
+            return jsonify({'error': f'API request failed: {str(e)}'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Error: {str(e)}'}), 500
+
+    @app.route("/import/sales/api/import", methods=["POST"])
+    @login_required
+    def sales_api_import():
+        """Import sales data from API"""
+        try:
+            req_data = request.get_json()
+            data = req_data.get('data', [])
+
+            if not data:
+                return jsonify({'error': 'No data to import'}), 400
+
+            # Convert to DataFrame
+            df = pd.DataFrame(data)
+
+            if df.empty:
+                return jsonify({'error': 'Empty data'}), 400
+
+            # Import sales using the import_sales function from importers.py
+            from importers import import_sales
+            imported_count = import_sales(df)
+
+            return jsonify({
+                'success': True,
+                'imported': imported_count,
+                'message': f'Successfully imported {imported_count} sales orders'
+            })
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Import failed: {str(e)}'}), 500
+
     # DEPRECATED: auto_detect_stock_mapping() has been removed
     # Now using shared auto_detect_mapping() for both Orders and Stock
     # This provides better fuzzy matching, synonym support, and consistency
@@ -3264,6 +3663,92 @@ def create_app():
             return jsonify({"found": False, "message": f"เกิดข้อผิดพลาด: {str(e)}"}), 500
     # ================== /NEW ==================
 
+    # ================== NEW: Print Status API ==================
+    @app.route("/api/print_status/warehouse", methods=["GET"])
+    @login_required
+    def get_warehouse_print_status():
+        """Get current warehouse print status"""
+        try:
+            setting = PrintSetting.query.filter_by(setting_key='warehouse_print_enabled').first()
+            
+            if not setting:
+                # ถ้าไม่มี setting ให้สร้างค่า default
+                setting = PrintSetting(
+                    setting_key='warehouse_print_enabled',
+                    setting_value='true',
+                    updated_by_user_id=None,
+                    updated_at=now_thai()
+                )
+                db.session.add(setting)
+                db.session.commit()
+            
+            enabled = setting.setting_value.lower() == 'true'
+            updated_by = setting.updated_by.username if setting.updated_by else 'System'
+            updated_at = to_thai_be(setting.updated_at) if setting.updated_at else ''
+            
+            return jsonify({
+                "enabled": enabled,
+                "updated_by": updated_by,
+                "updated_at": updated_at
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/print_status/warehouse", methods=["POST"])
+    @login_required
+    def update_warehouse_print_status():
+        """Update warehouse print status (admin only)"""
+        cu = current_user()
+        if not cu:
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+        
+        # ตรวจสอบว่าเป็น admin หรือไม่
+        if cu.role != 'admin':
+            return jsonify({"success": False, "error": "Only administrators can change print settings"}), 403
+        
+        try:
+            data = request.get_json() or {}
+            enabled = data.get("enabled")
+            
+            if enabled is None:
+                return jsonify({"success": False, "error": "Missing 'enabled' field"}), 400
+            
+            # แปลงเป็น boolean
+            if isinstance(enabled, str):
+                enabled = enabled.lower() in ('true', '1', 'yes')
+            else:
+                enabled = bool(enabled)
+            
+            # อัปเดตหรือสร้าง setting
+            setting = PrintSetting.query.filter_by(setting_key='warehouse_print_enabled').first()
+            
+            if setting:
+                setting.setting_value = 'true' if enabled else 'false'
+                setting.updated_by_user_id = cu.id
+                setting.updated_at = now_thai()
+            else:
+                setting = PrintSetting(
+                    setting_key='warehouse_print_enabled',
+                    setting_value='true' if enabled else 'false',
+                    updated_by_user_id=cu.id,
+                    updated_at=now_thai()
+                )
+                db.session.add(setting)
+            
+            db.session.commit()
+            
+            return jsonify({
+                "success": True,
+                "enabled": enabled,
+                "message": f"Print status updated to {'enabled' if enabled else 'disabled'}",
+                "updated_by": cu.username,
+                "updated_at": to_thai_be(setting.updated_at)
+            })
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e)}), 500
+    # ================== /NEW ==================
+
     # ================== NEW: Update Low Stock Round (ข้อ 1) ==================
     @app.route("/report/lowstock/update_round", methods=["POST"])
     @login_required
@@ -3692,6 +4177,18 @@ def create_app():
         total_orders = len(rows)  # Now 1 row = 1 order
         shops = Shop.query.all()
         logistics = sorted(set(r.get("logistic") for r in rows if r.get("logistic")))
+        
+        # [NEW] ดึง print status
+        print_setting = PrintSetting.query.filter_by(setting_key='warehouse_print_enabled').first()
+        print_enabled = True  # default
+        print_updated_by = None
+        print_updated_at = None
+        
+        if print_setting:
+            print_enabled = print_setting.setting_value.lower() == 'true'
+            print_updated_by = print_setting.updated_by.username if print_setting.updated_by else 'System'
+            print_updated_at = print_setting.updated_at
+        
         return render_template(
             "report.html",
             rows=rows,
@@ -3706,12 +4203,22 @@ def create_app():
             accepted_from=acc_from_str if reset_mode != 'all' else "",
             accepted_to=acc_to_str if reset_mode != 'all' else "",
             q=q,  # [NEW] ส่งค่าคำค้นหากลับไป template
+            print_enabled=print_enabled,  # [NEW] สถานะการพิมพ์
+            print_updated_by=print_updated_by,  # [NEW] ผู้อัปเดตล่าสุด
+            print_updated_at=print_updated_at,  # [NEW] เวลาอัปเดตล่าสุด
         )
 
     @app.route("/report/warehouse/print", methods=["POST"])
     @login_required
     def print_warehouse_commit():
         cu = current_user()
+        
+        # [NEW] ตรวจสอบสถานะการพิมพ์ก่อน
+        print_setting = PrintSetting.query.filter_by(setting_key='warehouse_print_enabled').first()
+        if print_setting and print_setting.setting_value.lower() != 'true':
+            flash("⚠️ การพิมพ์ถูกปิดใช้งานโดยผู้ดูแลระบบ", "danger")
+            return redirect(url_for("print_warehouse"))
+        
         platform = normalize_platform(request.form.get("platform"))
         shop_id = request.form.get("shop_id")
         logistic = request.form.get("logistic")

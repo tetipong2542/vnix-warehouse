@@ -485,14 +485,65 @@
 
         // Refocus on click
         $(document).on('click', function(e) {
+          if (manualInputEnabled) return; // ไม่แย่ง focus เมื่อเปิดโหมด manual
           if (!['INPUT', 'BUTTON', 'A', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
             globalInput.focus();
           }
         });
 
-        // Anti-Paste & Drop
-        globalInput.addEventListener('paste', e => { e.preventDefault(); alert('ห้าม Copy วาง!'); });
-        globalInput.addEventListener('drop', e => { e.preventDefault(); });
+        let manualInputEnabled = false;
+        let manualInputTimer = null;
+        
+        function enableManualInput(duration = 120000) {
+          manualInputEnabled = true;
+          globalInput.style.backgroundColor = '#fff3cd';
+          globalInput.style.borderColor = '#ffc107';
+          const minutes = Math.floor(duration / 60000);
+          showGlobalStatus(`<span class="fw-bold text-warning">Manual input enabled for ${minutes} min</span>`, 'warning');
+          if (manualInputTimer) clearTimeout(manualInputTimer);
+          manualInputTimer = setTimeout(() => {
+            disableManualInput();
+          }, duration);
+        }
+        
+        function disableManualInput() {
+          manualInputEnabled = false;
+          globalInput.style.backgroundColor = '';
+          globalInput.style.borderColor = '';
+          showGlobalStatus('<span class="text-muted small">พร้อมใช้งาน</span>', 'normal');
+          if (manualInputTimer) {
+            clearTimeout(manualInputTimer);
+            manualInputTimer = null;
+          }
+        }
+        
+        document.addEventListener('keydown', function(e) {
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            if (manualInputEnabled) {
+              disableManualInput();
+              alert('Locked');
+            } else {
+              enableManualInput(120000);
+              alert('Unlocked for 2 minutes');
+            }
+          }
+        });
+        
+        globalInput.addEventListener('paste', function(e) {
+          if (!manualInputEnabled) {
+            e.preventDefault();
+            showGlobalStatus('<span class="fw-bold">Paste not allowed</span>', 'error');
+            this.value = "";
+          }
+        });
+        
+        globalInput.addEventListener('drop', function(e) {
+          if (!manualInputEnabled) {
+            e.preventDefault();
+            showGlobalStatus('<span class="fw-bold">Drop not allowed</span>', 'error');
+          }
+        });
 
         // Handle Enter Key
         globalInput.addEventListener('keypress', function(e) {
@@ -508,6 +559,7 @@
         // Speed Check (Anti-Manual Typing)
         let lastTime = 0;
         globalInput.addEventListener('input', function() {
+          if (manualInputEnabled) return;
           const now = Date.now();
           if (this.value.length > 1 && (now - lastTime) > 70) { 
             this.value = ""; // Too slow = Clear
